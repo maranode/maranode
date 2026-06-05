@@ -1,31 +1,59 @@
 # Maranode
 
-**Local LLM runtime that can't phone home.**
+> **The local LLM runtime built for environments where a data leak is not an option.**
 
-Run any GGUF model on your own hardware. OpenAI-compatible API. Network isolation enforced at the kernel level, not a config flag. HMAC-chained audit log ready for GDPR, HIPAA, and SOC 2. Single Rust binary — no Python, no Docker required.
+Most local AI tools are built for developers on laptops. Maranode is built for hospitals, law firms, financial institutions, and any organization where sensitive data must stay inside the building — and you need to *prove* it.
 
-Pre-alpha. API shape is mostly settled; hardening is ongoing.
+**What makes it different:**
+
+- Network isolation is enforced at the **kernel level** (iptables OUTPUT chain default-DROP), not a config flag you can accidentally disable
+- Every inference, model load, and config change is written to a **tamper-evident HMAC-chained audit log** — one command to verify integrity, one command to export GDPR/HIPAA/SOC 2 evidence
+- **Single Rust binary.** No Python runtime, no sidecar daemons, no external database. The entire state is SQLite and flat files — you can inspect it with `cat`
+- Drop-in **OpenAI-compatible API** — existing code works with one line changed
+
+Pre-alpha. Core runtime is working; hardening is ongoing.
 
 ---
 
-## Why another local LLM runtime?
+## Who this is for
 
-[Ollama](https://ollama.com) is excellent for development. But it is not designed for environments where you actually need to prove data never left the machine. Maranode is.
+If you are running AI on sensitive data and someone in your organization has asked *"but how do we know it is not sending anything out?"* — this is the answer.
+
+Designed for: **healthcare (HIPAA), legal, finance, government, defense, any regulated environment that runs GDPR or ISO 27001 audits.**
+
+---
+
+## How it compares
 
 | | Ollama | LM Studio | Maranode |
-|---|---|---|---|
+|---|:---:|:---:|:---:|
 | OpenAI-compatible API | ✓ | ✓ | ✓ |
-| GPU / Metal acceleration | ✓ | ✓ | ✓ |
-| Network air-gap (kernel-level) | — | — | ✓ |
-| Tamper-evident audit log | — | — | ✓ |
-| Compliance exports (GDPR, HIPAA…) | — | — | ✓ |
-| Multi-tenant workspaces | — | — | ✓ |
-| TPM attestation | — | — | ✓ (developing) |
-| Single binary, no runtime deps | — | — | ✓ |
+| GPU / NPU / Metal acceleration | ✓ | ✓ | ✓ |
+| **Kernel-level network air-gap** | — | — | ✓ |
+| **Tamper-evident audit log** | — | — | ✓ |
+| **Compliance exports** (GDPR, HIPAA, SOC 2, ISO 27001) | — | — | ✓ |
+| **Multi-tenant workspaces** | — | — | ✓ |
+| **RAG — fully local, no external vector DB** | — | — | ✓ |
+| **TPM attestation** (cryptographic proof of runtime integrity) | — | — | ✓ developing |
+| **Single binary, zero runtime dependencies** | — | — | ✓ |
 
-The network isolation is not "we disabled telemetry." It is an iptables OUTPUT chain default-DROP applied at startup, active-probed on every `maranode verify network` call, and verifiable with `iptables -L` and `tcpdump` without trusting Maranode at all.
+Ollama is excellent for development. It is not designed for environments where you need to prove — not just claim — that data never left the machine. Maranode is.
 
-The audit log is not a log file. It is an append-only HMAC chain — every entry contains the HMAC of the previous entry. A tampered or deleted entry breaks the chain and is detectable by anyone who has the HMAC key.
+---
+
+## The isolation is real
+
+```bash
+# Verify isolation yourself — no need to trust Maranode
+sudo iptables -L OUTPUT
+maranode verify network   # active TCP probe + iptables-save dump
+
+# If you want raw confirmation:
+sudo tcpdump -i any -n not port 11984
+# (run inference — you will see nothing going out)
+```
+
+The OUTPUT chain default policy is DROP from the moment the daemon starts. Even if a library deep in the stack tries to phone home, the packet does not leave the machine.
 
 ---
 
@@ -36,13 +64,18 @@ The audit log is not a log file. It is an append-only HMAC chain — every entry
 ```bash
 brew tap maranode/maranode
 brew install maranode
-```
-
-```bash
 maranode serve
 ```
 
-### Linux (apt)
+### Linux — one line
+
+```bash
+curl -sSL https://get.maranode.com | sh
+```
+
+Supports Ubuntu 22.04+, Debian 12, RHEL / Rocky / Alma 9, Alpine 3.19+, Fedora 39+, Arch.
+
+### Linux — apt repository
 
 ```bash
 curl -sSL https://maranode.github.io/maranode/apt/maranode-archive-keyring.gpg \
@@ -56,76 +89,80 @@ sudo apt update && sudo apt install maranode
 sudo systemctl enable --now maranoded
 ```
 
-### Linux (curl installer)
+### Build from source
 
 ```bash
-curl -sSL https://get.maranode.com | sh
-```
-
-Supports Ubuntu 22.04+, Debian 12, RHEL/Rocky/Alma 9, Alpine 3.19+, Fedora 39+, Arch.
-
-### Build from source (any platform)
-
-```bash
-# Prerequisites: Rust 1.88+, CMake 3.14+
-# macOS also needs Xcode CLT: xcode-select --install
+# Rust 1.88+, CMake 3.14+
+# macOS: xcode-select --install
 
 git clone https://github.com/maranode/maranode && cd maranode
-make build        # auto-detects Metal / CUDA / ROCm / CPU
+make build          # auto-detects Metal / CUDA / ROCm / OpenVINO / CPU
 ```
 
-Specific backends:
-
-```bash
-make build-cpu      # CPU only, always works
-make build-metal    # Apple Metal (macOS)
-make build-cuda     # NVIDIA CUDA
-make build-rocm     # AMD ROCm
-make build-npu      # Intel NPU via OpenVINO
-```
+| Backend | Command |
+|---|---|
+| CPU (always works) | `make build-cpu` |
+| Apple Metal | `make build-metal` |
+| NVIDIA CUDA | `make build-cuda` |
+| AMD ROCm | `make build-rocm` |
+| Intel NPU (OpenVINO) | `make build-npu` |
+| AMD Ryzen AI (XDNA) | `make build-ryzenai` |
+| Vulkan | `make build-vulkan` |
 
 ---
 
-## Get a model running
+## Run your first model
 
 ```bash
-# Load a model from local file (recommended for air-gapped setups)
+# Import a model (works offline — no network needed)
 maranode model import /path/to/Llama-3.2-3B-Q4_K_M.gguf --name llama3.2 --tag 3b
 
-# Or pull from Hugging Face (requires network; disabled in air-gap mode)
-maranode model pull bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
-  --name llama3.2 --tag 3b
+# Ask something
+maranode chat "Summarize the GDPR Article 30 obligations for data processors"
 ```
 
-```bash
-maranode chat "Summarize the main GDPR obligations for data processors"
-```
+Web UI at `http://localhost:11984/ui`
 
-Web UI at `http://localhost:11984/ui`.
-
-Point any OpenAI SDK at `http://localhost:11984/v1`:
+Any OpenAI SDK works — just change `base_url`:
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:11984/v1", api_key="ignored")
-client.chat.completions.create(model="llama3.2:3b", messages=[{"role":"user","content":"Hello"}])
+client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[{"role": "user", "content": "Hello"}]
+)
 ```
 
 ---
 
-## Key features
+## Core features
 
-**Network isolation** — iptables egress DROP by default. Models run completely offline after import. Verify yourself: `maranode verify network` runs an active TCP probe and also prints the raw iptables-save output so you can check with your own tools.
+### Privacy and isolation
 
-**Audit log** — every inference, model import, config change, and daemon start is written to an append-only HMAC-chained JSON Lines file. `maranode audit verify` checks the chain. Compliance exports for GDPR, HIPAA, SOC 2, and ISO 27001 are one command away.
+**Kernel-level air-gap** — iptables OUTPUT default-DROP. Not a config option, not a flag — a kernel-enforced rule applied at daemon startup. Toggle it off explicitly if you need outbound access (e.g., to pull a model), then back on. Verify with standard Linux tools at any time without touching Maranode.
 
-**RAG (Retrieval-Augmented Generation)** — local embeddings, SQLite vector store, grounded answers with citations. Nothing leaves the machine. Disabled by default; enable with `--rag`.
+**Encrypted prompt storage** — prompts are never written to disk verbatim. The audit log stores the SHA-256 hash of each prompt. Full content logging is an explicit opt-in with separate retention controls.
 
-**Workspaces** — isolated multi-tenant environments, each with its own API key, model allowlist, rate limit, system prompt, and audit log. Useful for separating departments or applications on one server.
+**HMAC-chained audit log** — every event (inference, model import, config reload, daemon start/stop) is chained with an HMAC. A deleted or modified entry breaks the chain. `maranode audit verify` checks the entire chain in one command.
 
-**Content-addressed model store** — SHA-256 verified on every load. Two models sharing the same weights deduplicate automatically. A partial download is never visible as a usable model.
+**Compliance exports** — export the audit log as GDPR Article 30, HIPAA access log, SOC 2 security events, or ISO 27001 event log. Download a signed ZIP evidence bundle for auditors. Everything available via CLI, HTTP API, and web UI.
 
-**Single binary** — `maranoded` (daemon) and `maranode` (CLI). No Python interpreter, no separate database process, no sidecar. State is SQLite + flat files; you can inspect every byte with `cat`.
+### Intelligence
+
+**RAG (Retrieval-Augmented Generation)** — ground model answers in your own documents. Local embeddings, SQLite vector store, brute-force cosine retrieval, cited answers. Nothing leaves the machine. Start with `maranoded --rag`, import an embedding model, and add documents. When no relevant chunk is found, the model says so — it does not guess.
+
+**Multi-tenant workspaces** — isolated environments within one daemon. Each workspace has its own API key, model allowlist, rate limit, system prompt, and audit log segment. Useful for hospitals separating departments, law firms separating clients, or SaaS products with multiple customers.
+
+**Content-addressed model store** — SHA-256 verified on every load. Two models with identical weights deduplicate automatically. A partial download is never visible as a usable model.
+
+### Operations
+
+**Single binary** — `maranoded` (daemon) and `maranode` (CLI). No Python interpreter, no database server, no sidecar processes. State is SQLite + flat files on disk — inspectable with `cat`, backupable with `cp`, auditable without any special tooling.
+
+**Broad hardware support** — CPU (x86_64, aarch64), NVIDIA CUDA, AMD ROCm, Apple Metal, Intel NPU via OpenVINO, AMD Ryzen AI XDNA, Vulkan. Device selected automatically at startup.
+
+**Hot config reload** — most settings apply without restarting the daemon: `kill -HUP $(pgrep maranoded)` or `maranode admin config-reload`.
 
 ---
 
@@ -138,14 +175,15 @@ client.chat.completions.create(model="llama3.2:3b", messages=[{"role":"user","co
 - [docs/workspaces.md](docs/workspaces.md) — workspace isolation
 - [docs/compliance.md](docs/compliance.md) — audit log, compliance exports, evidence bundles
 - [docs/document-intelligence.md](docs/document-intelligence.md) — PDF ingest and RAG
-- [docs/verification.md](docs/verification.md) — how to verify network isolation and attestation
-- [ARCHITECTURE.md](ARCHITECTURE.md) — design principles, components, trust model, threat model
+- [docs/verification.md](docs/verification.md) — network isolation and attestation verification
+- [ARCHITECTURE.md](ARCHITECTURE.md) — design, trust model, threat model
+- [ROADMAP.md](ROADMAP.md) — what is done, what is next, what we will not do
 
 ---
 
 ## Status
 
-The core inference path, model store, audit log, isolation layer, RAG, and workspace isolation are implemented. NPU acceleration, the full web UI, and TPM attestation are in active development.
+Phase 0. Core inference, model store, audit log, network isolation, RAG, and workspace isolation are implemented. NPU acceleration, full web UI, and TPM attestation are in active development.
 
 ---
 
