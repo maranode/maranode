@@ -1,0 +1,61 @@
+[package]
+name    = "maranode-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# integration tests
+[[test]]
+name = "audit_chain"
+path = "integration/audit_chain_test.rs"
+
+[[test]]
+name = "store"
+path = "integration/store_test.rs"
+
+[[test]]
+name = "store_security"
+path = "integration/store_security_test.rs"
+
+[[test]]
+name = "inference"
+path = "integration/inference_test.rs"
+
+[[test]]
+name = "api_router"
+path = "integration/api_router_test.rs"
+
+[[test]]
+name = "device_selection"
+path = "integration/device_selection_test.rs"
+
+[[test]]
+name = "rag"
+path = "integration/rag_test.rs"
+
+# E2E tests
+[[test]]
+name = "api_e2e"
+path = "e2e/api_test.rs"
+
+# dependencies
+[dev-dependencies]
+maranode-common    = { workspace = true }
+maranode-audit     = { workspace = true }
+maranode-store     = { workspace = true }
+maranode-inference = { workspace = true }
+maranode-api       = { workspace = true }
+maranode-isolation = { workspace = true }
+maranode-rag       = { workspace = true }
+
+tokio          = { workspace = true }
+anyhow         = { workspace = true }
+serde_json     = { workspace = true }
+axum           = { workspace = true }
+tower          = { version = "0.4", features = ["util"] }
+http-body-util = { workspace = true }
+
+async-trait = "0.1"
+tempfile    = { workspace = true }
+reqwest     = { version = "0.12", features = ["json"] }

@@ -1,0 +1,246 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }} (${{ matrix.backend }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write   # required for cosign keyless signing
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            backend: cpu
+            features: ""
+            suffix: ""
+
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            backend: cuda
+            features: "--features cuda"
+            suffix: "-cuda"
+
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            backend: cpu
+            features: ""
+            suffix: ""
+
+          - os: macos-14
+            target: aarch64-apple-darwin
+            backend: metal
+            features: "--features metal"
+            suffix: "-metal"
+
+          - os: macos-13
+            target: x86_64-apple-darwin
+            backend: cpu
+            features: ""
+            suffix: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (aarch64 Linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y \
+            cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install build dependencies (Linux x86_64)
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: sudo apt-get install -y cmake build-essential
+
+      - name: Install CUDA toolkit
+        if: matrix.backend == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.16
+        with:
+          cuda: '12.3.0'
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-${{ matrix.backend }}
+
+      - name: Set SOURCE_DATE_EPOCH for reproducible builds
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $GITHUB_ENV
+
+      - name: Build
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+        run: |
+          cargo build --release \
+            --bin maranoded --bin maranode \
+            --no-default-features \
+            --target ${{ matrix.target }} \
+            ${{ matrix.features }}
+
+      - name: Package
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          TARGET=${{ matrix.target }}
+          SUFFIX=${{ matrix.suffix }}
+          ARCHIVE=maranode-${TAG}-${TARGET}${SUFFIX}.tar.gz
+
+          mkdir -p dist
+          cp target/$TARGET/release/maranoded dist/
+          cp target/$TARGET/release/maranode  dist/
+          cp README.md docs/usage.md dist/
+
+          tar -czf $ARCHIVE -C dist .
+          sha256sum $ARCHIVE > $ARCHIVE.sha256
+          echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign artifact (keyless / OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign-blob --yes \
+            --output-certificate ${{ env.ARCHIVE }}.crt \
+            --output-signature   ${{ env.ARCHIVE }}.sig \
+            ${{ env.ARCHIVE }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+            ${{ env.ARCHIVE }}.sig
+            ${{ env.ARCHIVE }}.crt
+
+  # Build .deb packages
+  deb:
+    name: Package .deb (${{ matrix.arch }})
+    needs: build
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+            suffix: ""
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+            suffix: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "maranode-*-${{ matrix.target }}${{ matrix.suffix }}.tar.gz"
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract binaries
+        run: |
+          mkdir -p binaries
+          tar -xzf artifacts/maranode-*-${{ matrix.target }}${{ matrix.suffix }}.tar.gz -C binaries
+
+      - name: Build .deb
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          VERSION=${TAG#v}
+          ARCH=${{ matrix.arch }}
+          PKG=maranode_${VERSION}_${ARCH}
+
+          mkdir -p ${PKG}/DEBIAN
+          mkdir -p ${PKG}/usr/bin
+          mkdir -p ${PKG}/lib/systemd/system
+          mkdir -p ${PKG}/var/lib/maranode
+
+          cp binaries/maranoded ${PKG}/usr/bin/
+          cp binaries/maranode  ${PKG}/usr/bin/
+          chmod 755 ${PKG}/usr/bin/maranoded ${PKG}/usr/bin/maranode
+
+          sed "s/VERSION/${VERSION}/g; s/ARCH/${ARCH}/g" \
+            packaging/debian/control > ${PKG}/DEBIAN/control
+
+          cp packaging/debian/postinst ${PKG}/DEBIAN/postinst
+          cp packaging/debian/prerm    ${PKG}/DEBIAN/prerm
+          chmod 755 ${PKG}/DEBIAN/postinst ${PKG}/DEBIAN/prerm
+
+          cp packaging/debian/maranoded.service ${PKG}/lib/systemd/system/
+
+          dpkg-deb --build --root-owner-group ${PKG}
+          sha256sum ${PKG}.deb > ${PKG}.deb.sha256
+          echo "DEB=${PKG}.deb" >> $GITHUB_ENV
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DEB }}
+          path: |
+            ${{ env.DEB }}
+            ${{ env.DEB }}.sha256
+
+  # Publish GitHub Release
+  release:
+    name: Publish release
+    needs: [build, deb]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # trigger downstream package repo updates
+  notify:
+    name: Trigger package updates
+    needs: release
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Trigger Homebrew formula update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          repository: maranode/homebrew-maranode
+          event-type: new-release
+          client-payload: '{"tag": "${{ github.ref_name }}"}'
+
+      - name: Trigger apt repo rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: update-apt-repo
+          client-payload: '{"tag": "${{ github.ref_name }}"}'

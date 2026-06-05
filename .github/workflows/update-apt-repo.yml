@@ -1,0 +1,92 @@
+name: Update apt repository
+
+on:
+  repository_dispatch:
+    types: [update-apt-repo]
+
+jobs:
+  update:
+    name: Rebuild apt repo on gh-pages
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: repo
+
+      - name: Install apt-ftparchive
+        run: sudo apt-get install -y apt-utils
+
+      - name: Import GPG signing key
+        run: |
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+
+      - name: Download .deb packages from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.client_payload.tag }}
+          mkdir -p debs
+
+          gh release download "$TAG" \
+            --repo ${{ github.repository }} \
+            --pattern "*.deb" \
+            --dir debs
+
+      - name: Place debs into repo pool
+        run: |
+          mkdir -p repo/apt/pool/main
+          cp debs/*.deb repo/apt/pool/main/
+
+      - name: Generate Packages and Release files
+        run: |
+          cd repo/apt
+
+          for ARCH in amd64 arm64; do
+            mkdir -p dists/stable/main/binary-${ARCH}
+            apt-ftparchive \
+              --arch ${ARCH} \
+              packages pool/main \
+              > dists/stable/main/binary-${ARCH}/Packages
+            gzip  -k dists/stable/main/binary-${ARCH}/Packages
+            bzip2 -k dists/stable/main/binary-${ARCH}/Packages
+          done
+
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="Maranode" \
+            -o APT::FTPArchive::Release::Label="Maranode" \
+            -o APT::FTPArchive::Release::Suite="stable" \
+            -o APT::FTPArchive::Release::Codename="stable" \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+            -o APT::FTPArchive::Release::Components="main" \
+            -o APT::FTPArchive::Release::Description="Maranode apt repository" \
+            release dists/stable > dists/stable/Release
+
+          gpg --batch --yes --default-key ${{ env.GPG_KEY_ID }} \
+            --armor --detach-sign \
+            --output dists/stable/Release.gpg \
+            dists/stable/Release
+
+          gpg --batch --yes --default-key ${{ env.GPG_KEY_ID }} \
+            --armor --clearsign \
+            --output dists/stable/InRelease \
+            dists/stable/Release
+
+      - name: Export public key
+        run: |
+          gpg --armor --export ${{ env.GPG_KEY_ID }} \
+            > repo/apt/maranode-archive-keyring.gpg
+
+      - name: Commit and push
+        run: |
+          cd repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apt/
+          git commit -m "apt: add packages for ${{ github.event.client_payload.tag }}" || echo "nothing to commit"
+          git push

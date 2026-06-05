@@ -1,0 +1,43 @@
+# Build artifacts - large, always reproducible
+target/
+dist/
+
+# Developer tools
+.cargo/registry/
+.cargo/git/
+
+# Model files - must never enter the image (gigabytes)
+*.gguf
+*.ggml
+*.bin
+*.safetensors
+
+# Runtime data
+/var/lib/maranode/
+*.jsonl
+*.key
+*.db
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test outputs
+/tests/e2e/
+coverage/
+
+# Documentation (not needed in the image)
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml

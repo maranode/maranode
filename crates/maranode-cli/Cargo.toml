@@ -1,0 +1,32 @@
+[package]
+name        = "maranode-cli"
+description = "maranode - CLI for the Maranode runtime"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[[bin]]
+name = "maranode"
+path = "src/main.rs"
+
+[dependencies]
+maranode-common       = { workspace = true }
+maranode-audit        = { workspace = true }
+maranode-attestation  = { workspace = true }
+maranode-store        = { workspace = true }
+
+tokio        = { workspace = true }
+clap         = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+anyhow       = { workspace = true }
+tracing      = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono       = { workspace = true }
+uuid         = { workspace = true }
+reqwest      = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream"] }
+futures-util = "0.3"
+indicatif    = { workspace = true }
+colored      = { workspace = true }
+rpassword    = { workspace = true }

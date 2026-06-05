@@ -1,0 +1,231 @@
+# Maranode daemon configuration
+#
+# Copy this file to one of the following locations (first found wins):
+#
+#   ~/.config/maranode/config.toml   (per-user, recommended)
+#   /etc/maranode/config.toml        (system-wide)
+#
+# Or supply an explicit path with:
+#   maranoded --config /path/to/config.toml
+#   MARANODE_CONFIG=/path/to/config.toml maranoded
+#
+# All settings have built-in defaults. An empty (or absent) config file is
+# valid - the daemon starts with sensible defaults.
+#
+# Priority: defaults, then this file, then env vars, then CLI flags.
+# A CLI flag always wins.
+
+# [Core]
+
+# Directory for model blobs, audit log, HMAC key, and the RAG SQLite database.
+# Default: ~/.local/share/maranode  (Linux)
+#          ~/Library/Application Support/maranode  (macOS)
+#
+# data_dir = "/var/lib/maranode"
+
+# Address and port the HTTP API listens on.
+# Restrict to loopback (default) unless you have a specific reason to expose
+# the API to other hosts - and never expose it without a reverse proxy + TLS.
+# Env: MARANODE_BIND
+#
+# bind = "127.0.0.1:11984"
+
+# Tracing log level. Supports tracing-subscriber filter syntax:
+#   "info"                     - all crates at INFO
+#   "debug"                    - all crates at DEBUG (very verbose)
+#   "maranode=debug,tower_http=warn"  - fine-grained per-crate
+# Env: RUST_LOG
+#
+# log_level = "info"
+
+# Inference device backend.
+#   auto    - selects Metal > CUDA > ROCm > Vulkan > OpenVINO > Ryzen AI > CPU (default)
+#   cpu     - force CPU even when a GPU backend is compiled in
+#   gpu     - force GPU (Metal/CUDA/ROCm/Vulkan); fails if none compiled
+#   npu     - force Intel OpenVINO NPU; fails if openvino not compiled
+#   ryzenai - force AMD Ryzen AI NPU; fails if ryzenai not compiled
+# Env: MARANODE_DEVICE
+#
+# device = "auto"
+
+# [Inference queue]
+#
+# llama.cpp runs one inference at a time. The queue serialises concurrent
+# requests so they wait rather than competing for the same model context.
+#
+# max_queue_depth - how many requests may wait before new ones are rejected
+# with HTTP 503. Tune this based on expected concurrency and acceptable wait
+# times. A hospital with 50 concurrent users could set this to 50; a personal
+# workstation can leave it at the default.
+# 0 = unlimited (requests stack up indefinitely - not recommended).
+#
+# [inference]
+# max_queue_depth = 32
+
+# [Assistant identity & system prompt]
+#
+# The system prompt is prepended to every conversation as the very first
+# message, before any RAG context. It applies to all entry points: web UI,
+# OpenAI-compatible API, and CLI.
+#
+# Resolution order (first non-empty wins):
+#   1. assistant.system_prompt_file - load the full prompt from a text file
+#   2. assistant.system_prompt      - inline TOML multi-line string
+#   3. Auto-generated short prompt from name only
+#   4. Nothing - no system prompt prepended (model uses its own defaults)
+
+[assistant]
+
+# Display name for the assistant.
+# Used in the auto-generated prompt when no explicit prompt is set.
+#
+# name = "Aria"
+
+# Inline system prompt. Use TOML triple-quoted strings for multi-line content.
+# Ignored when system_prompt_file is set.
+#
+# system_prompt = """
+# You are Aria. Answer briefly; cite RAG sources as [1] when used.
+# Be polite, concise, and professional.
+# Never assist with requests that could harm people.
+# """
+
+# Path to a plain-text file containing the full system prompt.
+# Takes priority over system_prompt above.
+# See docs/system_prompt.example.txt for a ready-to-use template.
+#
+# system_prompt_file = "/etc/maranode/system_prompt.txt"
+
+# [Network isolation]
+
+[isolation]
+
+# Isolation mode.
+#   airgap    - all outbound traffic blocked via iptables (default, safest)
+#   whitelist - only listed hosts/ports allowed outbound (see [[isolation.whitelist]])
+#   disabled  - no iptables rules (development convenience only - UNSAFE)
+#
+# Env: no direct env var; use --no-isolation CLI flag to force "disabled".
+#
+# mode = "airgap"
+
+# TCP port iptables allows inbound on. Must match `bind` above.
+#
+# api_port = 11984
+
+# Source addresses allowed to connect to the API.
+# Default is loopback only. Add e.g. your LAN subnet if running Maranode on a
+# dedicated machine and accessing it from another host on the same network.
+#
+# allowed_sources = ["127.0.0.1", "::1"]
+
+# Outbound whitelist entries - only used when mode = "whitelist".
+# Add one [[isolation.whitelist]] block per allowed destination.
+#
+# Example: allow pulling models from a private Hugging Face mirror.
+#
+# [[isolation.whitelist]]
+# host    = "hf-mirror.internal"
+# port    = 443
+# comment = "Private Hugging Face model mirror"
+
+# [Authentication]
+#
+# Identity is currently asserted via API keys passed as:
+#   Authorization: Bearer <key>
+#
+# Username/password login is not yet implemented; that will be added in a
+# future release. The plumbing for per-user API keys is already in place.
+
+[auth]
+
+# Admin API key. When set, this key grants full administrative access,
+# including RAG ingestion regardless of rag.ingest_policy below.
+#
+# Leave unset (default) to run in OPEN DEVELOPMENT MODE - no key is required
+# for any endpoint. Only do this on a loopback-only, single-user machine.
+#
+# Env: MARANODE_ADMIN_KEY  |  CLI: --admin-key
+#
+# admin_key = "change-me-before-exposing-to-network"
+
+# [RAG (Retrieval-Augmented Generation)]
+#
+# The RAG subsystem is entirely local: documents are chunked and embedded by
+# the local inference engine, stored in a SQLite database, and retrieved at
+# query time. Nothing leaves the machine.
+#
+# RAG is disabled by default. Enable it with `enabled = true` here, or with
+# the `--rag` CLI flag.
+
+[rag]
+
+# Master switch. When false (default), no vector store is created and the chat
+# path is untouched.
+# Env: MARANODE_RAG
+#
+# enabled = false
+
+# Embedding model used to vectorise documents and queries. Must be present in
+# the model store before the daemon starts with RAG enabled.
+# A dedicated embedding model produces much better retrieval than a chat model.
+# Env: MARANODE_EMBEDDING_MODEL
+#
+# embedding_model = "nomic-embed-text:latest"
+
+# Collection used when a request does not name one explicitly.
+# Env: MARANODE_RAG_COLLECTION
+#
+# default_collection = "default"
+
+# Target chunk size in characters when splitting ingested documents.
+# Larger chunks preserve more context but reduce retrieval precision.
+# Smaller chunks improve precision but may lose surrounding context.
+#
+# chunk_size = 1200
+
+# Overlap between consecutive chunks in characters.
+# Overlap ensures a sentence split across a boundary is covered by both chunks.
+#
+# chunk_overlap = 200
+
+# Maximum number of chunks returned per retrieval query.
+#
+# top_k = 5
+
+# Minimum cosine similarity (0.0–1.0) for a chunk to appear in results.
+# 0.0 means no filtering - all chunks are returned (ranked by score).
+# Raise this (e.g. 0.3–0.5) to return only clearly relevant chunks, which
+# lets the model legitimately answer "this is not in the provided documents."
+#
+# min_score = 0.0
+
+# Hard cap on characters of retrieved context injected into a prompt.
+# Prevents the combined context from exceeding the model's context window.
+# Adjust downward for small models (e.g. 3B with n_ctx=2048).
+#
+# max_context_chars = 6000
+
+# [RAG ingest permissions]
+#
+# IMPORTANT: extracting file text for inline chat context (POST /v1/rag/extract)
+# is ALWAYS open - any user can attach a file to a chat message without storing
+# anything permanently. These settings only govern who can write to the
+# persistent RAG vector store.
+#
+# Who may permanently ingest documents into the RAG store.
+#
+#   anyone     - no key required (default; fine for single-user / dev)
+#   admin_only - only the auth.admin_key grants ingest access
+#   allowlist  - only keys listed in ingest_allowlist (+ admin_key) may ingest
+#
+# ingest_policy = "anyone"
+
+# API keys allowed to ingest when ingest_policy = "allowlist".
+# The auth.admin_key is always implicitly included regardless of this list.
+# Example: give a specific service account ingest access without full admin rights.
+#
+# ingest_allowlist = [
+#   "key-for-medical-records-service",
+#   "key-for-document-scanner",
+# ]

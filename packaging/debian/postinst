@@ -1,0 +1,27 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    # Create system user if it doesn't exist
+    if ! id -u maranode > /dev/null 2>&1; then
+      adduser --system --group --no-create-home \
+              --home /var/lib/maranode \
+              --shell /usr/sbin/nologin \
+              maranode
+    fi
+
+    # Create data and log directories
+    install -d -m 750 -o maranode -g maranode /var/lib/maranode
+    install -d -m 750 -o maranode -g maranode /var/log/maranode
+
+    # Enable and start the service
+    if command -v systemctl > /dev/null 2>&1 && systemctl is-system-running --quiet 2>/dev/null; then
+      systemctl daemon-reload
+      systemctl enable maranoded.service
+      systemctl start  maranoded.service || true
+    fi
+    ;;
+esac
+
+exit 0

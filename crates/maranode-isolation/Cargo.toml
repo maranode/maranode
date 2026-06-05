@@ -1,0 +1,15 @@
+[package]
+name        = "maranode-isolation"
+description = "iptables-based network isolation and air-gap enforcement for Maranode"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[dependencies]
+maranode-common = { workspace = true }
+anyhow        = { workspace = true }
+thiserror     = { workspace = true }
+serde         = { workspace = true }
+tokio         = { workspace = true }
+tracing       = { workspace = true }

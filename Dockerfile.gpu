@@ -1,0 +1,122 @@
+# Maranode - GPU Dockerfile (NVIDIA CUDA)
+#
+# Requires on the host:
+#   - NVIDIA driver ≥ 525
+#   - nvidia-container-toolkit
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# Build:
+#   docker build -f Dockerfile.gpu -t maranode/runtime:gpu .
+#
+# Run:
+#   docker run -d \
+#     --name maranode-gpu \
+#     --gpus all \
+#     --cap-add NET_ADMIN \
+#     -p 127.0.0.1:11984:11984 \
+#     -v maranode-data:/var/lib/maranode \
+#     maranode/runtime:gpu
+#
+# Notes:
+#   - The builder uses the CUDA 12 devel image which includes nvcc + cuBLAS.
+#   - The runtime uses cuda-runtime (no compiler) to keep the image smaller.
+#   - llama.cpp CUDA backend is enabled via --features maranode-inference/cuda.
+
+# cuda-devel image includes: nvcc, cuBLAS headers, libcudart - everything
+# llama.cpp needs to compile its CUDA kernels.
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+
+# Install Rust toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.86
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Build-time dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake \
+        g++ \
+        libgomp1 \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY Cargo.toml Cargo.lock ./
+
+RUN for crate in \
+        maranode-common maranode-audit maranode-isolation maranode-store \
+        maranode-inference maranode-api; do \
+      mkdir -p crates/${crate}/src && \
+      printf '// stub\n' > crates/${crate}/src/lib.rs; \
+    done && \
+    for bin in maranode-daemon maranode-cli; do \
+      mkdir -p crates/${bin}/src && \
+      printf 'fn main(){}\n' > crates/${bin}/src/main.rs; \
+    done
+
+COPY crates/maranode-common/Cargo.toml    crates/maranode-common/
+COPY crates/maranode-audit/Cargo.toml     crates/maranode-audit/
+COPY crates/maranode-isolation/Cargo.toml crates/maranode-isolation/
+COPY crates/maranode-store/Cargo.toml     crates/maranode-store/
+COPY crates/maranode-inference/Cargo.toml crates/maranode-inference/
+COPY crates/maranode-api/Cargo.toml       crates/maranode-api/
+COPY crates/maranode-daemon/Cargo.toml    crates/maranode-daemon/
+COPY crates/maranode-cli/Cargo.toml       crates/maranode-cli/
+
+# Pre-compile deps (including llama.cpp CUDA kernels) into a cached layer.
+RUN cargo build --release \
+      --features maranode-inference/cuda \
+      --bin maranoded --bin maranode || true
+
+# Real build
+COPY crates/ crates/
+RUN find crates -name "*.rs" -exec touch {} +
+
+RUN cargo build --release \
+      --features maranode-inference/cuda \
+      --bin maranoded --bin maranode \
+    && mkdir -p /build/out \
+    && cp target/release/maranoded target/release/maranode /build/out/
+
+# Stage 2 NVIDIA runtime image
+# cuda-runtime: shared libraries needed at runtime (no compiler, no toolkit).
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        iptables \
+        ip6tables \
+        libcap2-bin \
+        tini \
+        wget \
+        libgomp1 \
+        libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r maranode && useradd -r -g maranode maranode
+RUN mkdir -p /var/lib/maranode && chown maranode:maranode /var/lib/maranode
+
+COPY --from=builder /build/out/maranoded /build/out/maranode /usr/local/bin/
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+VOLUME ["/var/lib/maranode"]
+EXPOSE 11984
+
+# Tell nvidia-container-toolkit to inject all GPU devices.
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+LABEL org.opencontainers.image.title="Maranode Runtime (GPU)" \
+      org.opencontainers.image.description="Privacy-first, On-premises AI runtime - NVIDIA CUDA variant" \
+      org.opencontainers.image.source="https://github.com/maranode/maranode" \
+      org.opencontainers.image.authors="ondercsn" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
+CMD ["--air-gap"]

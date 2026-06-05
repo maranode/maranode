@@ -1,0 +1,14 @@
+Package: maranode
+Version: VERSION
+Architecture: ARCH
+Maintainer: ondercsn <ondercsn@users.noreply.github.com>
+Installed-Size: 20480
+Depends: libc6 (>= 2.31)
+Section: utils
+Priority: optional
+Homepage: https://github.com/maranode/maranode
+Description: Private, air-gapped AI inference runtime
+ Maranode runs large language models entirely on-premises.
+ No data leaves the machine. Includes a REST API compatible
+ with the OpenAI chat completions format, a web UI, RAG
+ support, and a tamper-evident audit log.

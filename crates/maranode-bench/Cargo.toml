@@ -1,0 +1,38 @@
+[package]
+name        = "maranode-bench"
+description = "Maranode inference benchmark - tokens/sec, TTFT, and latency percentiles"
+version.workspace     = true
+edition.workspace     = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+homepage.workspace    = true
+rust-version.workspace = true
+
+[[bin]]
+name = "maranode-bench"
+path = "src/main.rs"
+
+[dependencies]
+maranode-common    = { workspace = true }
+maranode-inference = { workspace = true }
+anyhow             = { workspace = true }
+clap               = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono             = { workspace = true }
+uuid               = { workspace = true }
+colored            = { workspace = true }
+indicatif          = { workspace = true }
+
+[features]
+default  = ["cpu"]
+cpu      = ["maranode-inference/cpu"]
+cuda     = ["maranode-inference/cuda"]
+metal    = ["maranode-inference/metal"]
+rocm     = ["maranode-inference/rocm"]
+vulkan   = ["maranode-inference/vulkan"]
+openvino = ["maranode-inference/openvino"]

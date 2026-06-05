@@ -1,0 +1,35 @@
+[package]
+name        = "maranode-daemon"
+description = "maranoded - the Maranode runtime daemon"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[[bin]]
+name = "maranoded"
+path = "src/main.rs"
+
+[dependencies]
+maranode-common       = { workspace = true }
+maranode-audit        = { workspace = true }
+maranode-attestation  = { workspace = true }
+maranode-isolation    = { workspace = true }
+maranode-store     = { workspace = true }
+maranode-inference = { workspace = true }
+maranode-rag       = { workspace = true }
+maranode-api       = { workspace = true }
+
+axum         = { workspace = true }
+hyper-util   = { version = "0.1", features = ["tokio", "server-auto"] }
+tower        = { workspace = true, features = ["util"] }
+tokio        = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+toml         = { workspace = true }
+anyhow       = { workspace = true }
+tracing      = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap         = { workspace = true }
+chrono       = { workspace = true }
+uuid         = { workspace = true }

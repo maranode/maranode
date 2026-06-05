@@ -1,0 +1,54 @@
+[package]
+name        = "maranode-inference"
+description = "llama.cpp FFI wrapper and inference engine for Maranode"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[features]
+# No GPU by default - CPU inference always works without extra dependencies.
+# Enable one GPU backend explicitly:
+#   cargo build --features metal    (macOS, Apple Silicon / AMD)
+#   cargo build --features cuda     (Linux/Windows, NVIDIA)
+#   cargo build --features rocm     (Linux, AMD)
+#   cargo build --features vulkan   (cross-platform, requires Vulkan SDK)
+#   cargo build --features openvino (Linux, Intel NPU / iGPU - Intel Core Ultra)
+#
+# For OpenVINO, llama-cpp-sys-2 does not propagate the cmake flag automatically.
+# Set it before the very first build (run `cargo clean` if switching devices):
+#   LLAMA_CMAKE_ARGS="-DGGML_OPENVINO=ON" cargo build --features openvino
+# Then source the OpenVINO runtime before running the daemon:
+#   source /opt/intel/openvino/setupvars.sh
+#
+# Or use the Makefile targets: make build-metal / make build-cuda / make build-cpu / make build-npu
+default  = []
+cpu      = []
+cuda     = ["llama-cpp-2/cuda"]
+metal    = ["llama-cpp-2/metal"]
+rocm     = ["llama-cpp-2/rocm"]
+vulkan   = ["llama-cpp-2/vulkan"]
+# llama-cpp-sys-2 does not yet expose a cargo feature for OpenVINO; the cmake
+# flag (-DGGML_OPENVINO=ON) must be set via LLAMA_CMAKE_ARGS. This feature gate
+# activates our build-time detection + link-lib directives and runtime validation.
+openvino = []
+# AMD Ryzen AI NPU via XDNA driver (Intel Core Ultra competitor).
+# Same cmake-flag pattern as openvino:
+#   LLAMA_CMAKE_ARGS="-DGGML_RYZEN_AI=ON" cargo build --features ryzenai
+# Install the AMD Ryzen AI SDK first: https://ryzenai.docs.amd.com
+ryzenai = []
+
+[dependencies]
+maranode-common = { workspace = true }
+anyhow        = { workspace = true }
+thiserror     = { workspace = true }
+serde         = { workspace = true }
+tokio         = { workspace = true }
+tracing       = { workspace = true }
+bytes         = { workspace = true }
+async-trait   = "0.1"
+
+# llama.cpp safe Rust bindings.
+# Compiles llama.cpp from bundled C++ sources during `cargo build`.
+# Requires: cmake + g++ (Linux/macOS) or Visual Studio (Windows).
+llama-cpp-2 = { version = "0.1", default-features = false }

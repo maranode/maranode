@@ -1,0 +1,12 @@
+//! shared types, paths, and audit event definitions
+
+pub mod error;
+pub mod events;
+pub mod models;
+pub mod paths;
+pub mod secure;
+pub mod types;
+pub mod user;
+pub mod workspace;
+
+pub use error::{MaranodeError, Result};

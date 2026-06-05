@@ -1,0 +1,51 @@
+[Unit]
+Description=Maranode AI Runtime Daemon
+Documentation=https://maranode.com/docs
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=maranode
+Group=maranode
+
+ExecStart=/usr/bin/maranoded
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# data directory
+Environment="MARANODE_DATA_DIR=/var/lib/maranode"
+
+# hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/maranode
+ReadWritePaths=/var/log/maranode
+
+# capability bounding set - maranode only needs NET_ADMIN to manage iptables
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+# prevent privilege escalation
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=no
+# MWX disabled: llama.cpp JIT-maps inference buffers
+
+# networking - daemon binds only to loopback by default
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=maranoded
+
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

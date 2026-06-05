@@ -1,0 +1,114 @@
+# Dockerfile.openvino - Maranode runtime with Intel OpenVINO / NPU acceleration.
+#
+# Build: ./scripts/build-docker.sh --openvino
+# Run:   docker compose --profile npu up -d
+#
+# Targets:
+#   - Intel Core Ultra NPU (Meteor Lake / Arrow Lake)
+#   - Intel Arc GPU
+#   - Intel CPU (via OpenVINO CPU plugin - often faster than raw llama.cpp)
+#
+# Requires: Intel OpenVINO driver stack on the host.
+#   NPU:  https://github.com/intel/linux-npu-driver
+#   GPU:  https://github.com/intel/compute-runtime
+
+# Builder
+FROM openvino/ubuntu22_dev:2024.5.0 AS builder
+
+USER root
+
+# System build dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        cmake \
+        make \
+        g++ \
+        pkg-config \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain 1.86.0 --profile minimal \
+    && rustc --version && cargo --version
+
+# Source OpenVINO environment.
+RUN echo "source /opt/intel/openvino_2024/setupvars.sh" >> /etc/bash.bashrc
+ENV OpenVINO_DIR=/opt/intel/openvino_2024/runtime/cmake
+
+WORKDIR /build
+
+# Cache dependency compilation layer.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/maranode-common/Cargo.toml    crates/maranode-common/
+COPY crates/maranode-audit/Cargo.toml     crates/maranode-audit/
+COPY crates/maranode-isolation/Cargo.toml crates/maranode-isolation/
+COPY crates/maranode-store/Cargo.toml     crates/maranode-store/
+COPY crates/maranode-inference/Cargo.toml crates/maranode-inference/
+COPY crates/maranode-api/Cargo.toml       crates/maranode-api/
+COPY crates/maranode-daemon/Cargo.toml    crates/maranode-daemon/
+COPY crates/maranode-cli/Cargo.toml       crates/maranode-cli/
+COPY crates/maranode-bench/Cargo.toml     crates/maranode-bench/
+COPY tests/Cargo.toml                   tests/
+
+# Stub sources for dependency caching.
+RUN for d in crates/*/src; do mkdir -p "$d"; echo "fn main(){}" > "$d/lib.rs"; done && \
+    echo "fn main(){}" > crates/maranode-daemon/src/main.rs && \
+    echo "fn main(){}" > crates/maranode-cli/src/main.rs && \
+    echo "fn main(){}" > crates/maranode-bench/src/main.rs && \
+    mkdir -p tests/integration tests/e2e && \
+    echo "" > tests/integration/dummy.rs && \
+    echo "" > tests/e2e/dummy.rs
+
+RUN cargo build --release --features maranode-inference/openvino 2>&1 | tail -5 || true
+
+# Full source build.
+COPY . .
+
+RUN . /opt/intel/openvino_2024/setupvars.sh && \
+    cargo build --release \
+        --bin maranoded \
+        --bin maranode \
+        --features maranode-inference/openvino
+
+# Runtime
+FROM openvino/ubuntu22_runtime:2024.5.0 AS runtime
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        iptables \
+        libcap2-bin \
+        tini \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binaries from builder.
+COPY --from=builder /build/target/release/maranoded /usr/local/bin/maranoded
+COPY --from=builder /build/target/release/maranode   /usr/local/bin/maranode
+
+# Copy entrypoint.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Data directory.
+RUN mkdir -p /var/lib/maranode && \
+    useradd --system --no-create-home --shell /usr/sbin/nologin maranode && \
+    chown maranode:maranode /var/lib/maranode
+
+# Give maranoded CAP_NET_ADMIN for iptables.
+RUN setcap cap_net_admin+eip /usr/local/bin/maranoded
+
+EXPOSE 11984
+
+VOLUME ["/var/lib/maranode"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:11984/health || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

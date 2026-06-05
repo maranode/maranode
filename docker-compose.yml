@@ -1,0 +1,170 @@
+# Maranode - Docker Compose
+#
+# Profiles:
+#   cpu      -> CPU inference with air-gap enabled (default)
+#   gpu      -> NVIDIA CUDA GPU inference with air-gap enabled
+#   rocm     -> AMD ROCm/HIP GPU inference with air-gap enabled
+#   npu      -> Intel OpenVINO NPU inference with air-gap enabled
+#   dev      -> Development mode (isolation disabled, port exposed to host)
+#
+# Usage:
+#   docker compose --profile cpu   up -d    # CPU
+#   docker compose --profile gpu   up -d    # NVIDIA CUDA
+#   docker compose --profile rocm  up -d    # AMD ROCm
+#   docker compose --profile npu   up -d    # Intel OpenVINO / NPU
+#   docker compose --profile dev   up       # Development
+#
+# Model import (works for any profile):
+#   docker compose --profile cpu exec maranode \
+#     maranode model import /models/deepseek.gguf --name deepseek --tag 7b
+
+name: maranode
+
+# shared anchors
+x-common-env: &common-env
+  MARANODE_DATA_DIR: /var/lib/maranode
+  MARANODE_LOG_LEVEL: ${MARANODE_LOG_LEVEL:-info}
+
+x-common: &common
+  volumes:
+    - maranode-data:/var/lib/maranode
+    - ${MODEL_DIR:-./models}:/models:ro
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://localhost:11984/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 10s
+
+services:
+
+  # CPU (air-gap, production)
+  maranode:
+    <<: *common
+    profiles: [cpu]
+    image: maranode/runtime:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - maranode/runtime:latest
+    container_name: maranode
+    # NET_ADMIN is required to apply iptables rules for the air-gap.
+    cap_add:
+      - NET_ADMIN
+    # No network access beyond loopback (also isolated from the Docker network).
+    network_mode: host
+    environment:
+      <<: *common-env
+      MARANODE_BIND: 127.0.0.1:11984
+      MARANODE_DEVICE: cpu
+    command: ["--air-gap"]
+
+  # NVIDIA CUDA (air-gap, production)
+  maranode-gpu:
+    <<: *common
+    profiles: [gpu]
+    image: maranode/runtime:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: maranode-gpu
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    environment:
+      <<: *common-env
+      MARANODE_BIND: 127.0.0.1:11984
+      MARANODE_DEVICE: gpu
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["--air-gap", "--device", "gpu"]
+
+  # AMD ROCm (air-gap, production)
+  maranode-rocm:
+    <<: *common
+    profiles: [rocm]
+    image: maranode/runtime:rocm
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+    container_name: maranode-rocm
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    environment:
+      <<: *common-env
+      MARANODE_BIND: 127.0.0.1:11984
+      MARANODE_DEVICE: gpu
+      # Pass all AMD GPUs into the container.
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-}
+    # AMD GPU device access via /dev/kfd and /dev/dri.
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    command: ["--air-gap", "--device", "gpu"]
+
+  # Intel OpenVINO / NPU (air-gap, production)
+  maranode-npu:
+    <<: *common
+    profiles: [npu]
+    image: maranode/runtime:npu
+    build:
+      context: .
+      dockerfile: Dockerfile.openvino
+    container_name: maranode-npu
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    environment:
+      <<: *common-env
+      MARANODE_BIND: 127.0.0.1:11984
+      MARANODE_DEVICE: npu
+    # Intel NPU device node - available on Meteor Lake and later.
+    devices:
+      - /dev/accel/accel0:/dev/accel/accel0
+    command: ["--air-gap", "--device", "npu"]
+
+  # Development (isolation disabled, for hot-reload)
+  maranode-dev:
+    <<: *common
+    profiles: [dev]
+    image: maranode/runtime:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: maranode-dev
+    # NET_ADMIN not needed - isolation is disabled.
+    # Default bridge network - does not exhaust the Docker address pool.
+    network_mode: bridge
+    ports:
+      # Accessible from the host (for test and development tools).
+      - "127.0.0.1:11984:11984"
+    environment:
+      <<: *common-env
+      MARANODE_BIND: 0.0.0.0:11984
+      MARANODE_LOG_LEVEL: debug
+      MARANODE_DEVICE: cpu
+      # Optional, fully-local RAG (off by default)
+      # Uncomment to ground answers in your own documents instead of the model's
+      # (unreliable) memory. Requires an embedding model imported into the store.
+      # MARANODE_RAG: "true"
+      # MARANODE_EMBEDDING_MODEL: "nomic-embed-text:latest"
+      # MARANODE_RAG_COLLECTION: "default"
+    command: ["--no-isolation"]
+
+volumes:
+  maranode-data:
+    driver: local
+    labels:
+      com.maranode.description: "Maranode model store and audit log"

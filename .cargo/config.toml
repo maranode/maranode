@@ -1,0 +1,17 @@
+[build]
+# Use mold linker if available for faster linking in development
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[alias]
+dev    = "run --bin maranode --"
+daemon = "run --bin maranoded --"
+ck     = "check --workspace"
+t      = "test --workspace"
+clippy-all = "clippy --workspace --all-targets --all-features -- -D warnings"
+
+[env]
+RUST_BACKTRACE = { value = "1", force = false }
+
+[rag]
+enabled = true

@@ -1,0 +1,21 @@
+/target
+/dist
+**/*.rs.bk
+*.pdb
+.env
+.env.*
+!.env.example
+/models/*
+.lock
+
+# macos
+.DS_Store
+
+# editor
+.vscode/settings.json
+.idea/
+
+/var/lib/maranode/
+*.gguf
+
+TODO.md

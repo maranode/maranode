@@ -1,0 +1,141 @@
+//! maranode CLI binary (maranode)
+
+mod commands;
+mod errors;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+
+use maranode_common::paths::default_data_dir;
+
+#[derive(Parser)]
+#[command(name = "maranode", about = "Maranode Privacy-first local AI runtime", version)]
+struct Cli {
+    /// daemon HTTP address
+    #[arg(long, default_value = "http://127.0.0.1:11984", env = "MARANODE_HOST")]
+    host: String,
+
+    /// data directory path
+    #[arg(long, env = "MARANODE_DATA_DIR")]
+    data_dir: Option<std::path::PathBuf>,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// manage models in local store
+    Model {
+        #[command(subcommand)]
+        action: commands::model::ModelCommand,
+    },
+    /// audit log commands
+    Audit {
+        #[command(subcommand)]
+        action: commands::audit::AuditCommand,
+    },
+    /// health and integrity checks
+    Verify {
+        #[command(subcommand)]
+        action: commands::verify::VerifyCommand,
+    },
+    /// send chat message and print response
+    Chat {
+        /// user message text
+        prompt: String,
+        /// model name:tag to use
+        #[arg(long, default_value = "llama3.2:3b")]
+        model: String,
+        /// use RAG to add document context to answer
+        #[arg(long)]
+        rag: bool,
+        /// RAG collection name
+        #[arg(long)]
+        collection: Option<String>,
+    },
+    /// manage local RAG document store
+    Rag {
+        #[command(subcommand)]
+        action: commands::rag::RagCommand,
+    },
+    /// show daemon status and runtime stats
+    Status,
+    /// manage local users: list, create, password, disable
+    Users {
+        #[command(subcommand)]
+        action: commands::users::UsersCommand,
+    },
+    /// admin operations. needs auth.admin_key when daemon has it set
+    Admin {
+        #[command(subcommand)]
+        action: commands::admin::AdminCommand,
+    },
+    /// start runtime daemon by exec maranoded
+    Serve {
+        /// extra arguments passed to maranoded
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        daemon_args: Vec<String>,
+    },
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter("maranode=info")
+        .with_target(false)
+        .init();
+
+    if let Err(e) = run().await {
+        errors::print_cli_error(&e);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let data_dir = cli.data_dir.unwrap_or_else(default_data_dir);
+
+    match cli.command {
+        Commands::Model { action } => {
+            commands::model::run(action, &data_dir).await?;
+        }
+        Commands::Audit { action } => {
+            commands::audit::run(action, &data_dir).await?;
+        }
+        Commands::Verify { action } => {
+            commands::verify::run(action, &cli.host).await?;
+        }
+        Commands::Chat {
+            prompt,
+            model,
+            rag,
+            collection,
+        } => {
+            let use_rag = rag || collection.is_some();
+            commands::chat::run(&prompt, &model, &cli.host, use_rag, collection).await?;
+        }
+        Commands::Rag { action } => {
+            commands::rag::run(action, &cli.host).await?;
+        }
+        Commands::Status => {
+            commands::status::run(&cli.host).await?;
+        }
+        Commands::Users { action } => {
+            commands::users::run(action, &data_dir)?;
+        }
+        Commands::Serve { daemon_args } => {
+            commands::serve::run(&daemon_args)?;
+        }
+        Commands::Admin { action } => {
+            let key = std::env::var("MARANODE_ADMIN_KEY").ok();
+            match action {
+                commands::admin::AdminCommand::ConfigReload => {
+                    commands::admin::reload_config(&cli.host, key.as_deref()).await?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

@@ -1,0 +1,60 @@
+name: Update Homebrew formula
+
+on:
+  repository_dispatch:
+    types: [new-release]
+
+jobs:
+  update:
+    name: Patch formula in homebrew-maranode tap
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: maranode/homebrew-maranode
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Resolve release asset SHA256s
+        env:
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.client_payload.tag }}
+          VERSION=${TAG#v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          fetch_sha() {
+            gh release download "$TAG" \
+              --repo maranode/maranode \
+              --pattern "$1.sha256" \
+              --output - | awk '{print $1}'
+          }
+
+          ARM64=maranode-${TAG}-aarch64-apple-darwin-metal.tar.gz
+          X86=maranode-${TAG}-x86_64-apple-darwin.tar.gz
+
+          echo "SHA256_ARM64=$(fetch_sha $ARM64)" >> $GITHUB_ENV
+          echo "SHA256_X86=$(fetch_sha $X86)"     >> $GITHUB_ENV
+
+      - name: Update formula
+        run: |
+          FORMULA=tap/Formula/maranode.rb
+
+          sed -i \
+            -e "s/version \".*\"/version \"${{ env.VERSION }}\"/" \
+            -e "s|download/v[^/]*/maranode|download/v${{ env.VERSION }}/maranode|g" \
+            -e "s/maranode-v[^-]*-aarch64/maranode-v${{ env.VERSION }}-aarch64/g" \
+            -e "s/maranode-v[^-]*-x86_64/maranode-v${{ env.VERSION }}-x86_64/g" \
+            -e "s/SHA256_ARM64_METAL/${{ env.SHA256_ARM64 }}/g" \
+            -e "s/SHA256_X86_64/${{ env.SHA256_X86 }}/g" \
+            $FORMULA
+
+      - name: Commit and push
+        run: |
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/maranode.rb
+          git commit -m "maranode ${{ env.VERSION }}"
+          git push

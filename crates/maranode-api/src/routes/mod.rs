@@ -1,0 +1,12 @@
+pub mod attestation;
+pub mod audit;
+pub mod chat;
+pub mod embeddings;
+pub mod health;
+pub mod identity;
+pub mod models;
+pub mod rag;
+pub mod stats;
+pub mod ui;
+pub mod users;
+pub mod workspaces;

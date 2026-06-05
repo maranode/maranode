@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maranode</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #f4f6fb;
+  --sidebar:    #ffffff;
+  --surface:    #ffffff;
+  --surface2:   #f0f2f7;
+  --surface3:   #e8ecf5;
+  --border:     #dde1ee;
+  --border2:    #e4e8f2;
+  --accent:     #3b6ef0;
+  --accent-dim: #e8eeff;
+  --accent-glow:rgba(59,110,240,0.12);
+  --purple:     #7c4dff;
+  --purple-dim: #ede8ff;
+  --text:       #1a1d2e;
+  --text-dim:   #8b93b0;
+  --text-mid:   #4a5070;
+  --green:      #1aaa6b;
+  --green-dim:  rgba(26,170,107,0.10);
+  --red:        #e03050;
+  --red-dim:    rgba(224,48,80,0.10);
+  --yellow:     #d48a00;
+  --yellow-dim: rgba(212,138,0,0.10);
+  --mono:       'JetBrains Mono','Fira Code','Consolas',monospace;
+  --sans:       system-ui,-apple-system,'Segoe UI',sans-serif;
+  --r:          10px;
+  --r-sm:       7px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border2); filter: brightness(1.4); }
+
+#sidebar {
+  width: 330px;
+  min-width: 260px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--border2);
+}
+#sidebar-logo {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #fff;
+  letter-spacing: -1px; flex-shrink: 0;
+}
+#sidebar-brand h1 {
+  font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+}
+#sidebar-brand h1 span { color: var(--accent); }
+#sidebar-status {
+  margin-left: auto; display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-dim);
+}
+#status-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim);
+  transition: background 0.3s;
+}
+#status-dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+#status-dot.err { background: var(--red); }
+
+#new-chat-btn {
+  margin: 12px 12px 8px;
+  padding: 9px 14px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(91,142,247,0.25);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  transition: background 0.15s, border-color 0.15s;
+  width: calc(100% - 24px);
+}
+#new-chat-btn:hover {
+  background: rgba(91,142,247,0.2);
+  border-color: rgba(91,142,247,0.4);
+}
+#new-chat-btn svg { flex-shrink: 0; }
+
+#conv-list-label {
+  padding: 6px 16px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--text-dim);
+}
+
+#conv-list {
+  flex: 1; overflow-y: auto; padding: 0 8px 8px;
+}
+
+.conv-item {
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 2px 6px;
+  transition: background 0.12s;
+  margin-bottom: 2px;
+  position: relative;
+}
+.conv-item:hover { background: var(--surface2); }
+.conv-item.active {
+  background: var(--accent-dim);
+  border: 1px solid rgba(59,110,240,0.2);
+}
+.conv-title {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  grid-column: 1; grid-row: 1;
+}
+.conv-item.active .conv-title { color: var(--accent); }
+.conv-meta {
+  font-size: 11px; color: var(--text-dim);
+  display: flex; align-items: center; gap: 6px;
+  grid-column: 1; grid-row: 2;
+}
+.conv-del {
+  grid-column: 2; grid-row: 1 / 3;
+  align-self: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 13px; line-height: 1;
+  padding: 2px 4px; border-radius: 4px;
+  opacity: 0; transition: opacity 0.15s, color 0.15s;
+}
+.conv-item:hover .conv-del { opacity: 1; }
+.conv-del:hover { color: var(--red); }
+
+#sidebar-footer {
+  border-top: 1px solid var(--border2);
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sidebar-nav-btn {
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 9px;
+  color: var(--text-mid); font-size: 13px;
+  background: none; border: none;
+  transition: background 0.12s, color 0.12s;
+  width: 100%; text-align: left;
+}
+.sidebar-nav-btn:hover { background: var(--surface2); color: var(--text); }
+.sidebar-nav-btn.active { color: var(--accent); background: var(--accent-dim); }
+.sidebar-nav-btn svg { opacity: 0.7; flex-shrink: 0; }
+.sidebar-nav-btn.active svg { opacity: 1; }
+
+#main {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  min-width: 0;
+}
+
+#topbar {
+  height: 50px; min-height: 50px;
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#topbar-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#topbar-badges { display: flex; align-items: center; gap: 8px; }
+.badge {
+  padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.badge.airgap  { background: var(--accent-dim); color: var(--accent); display: none; }
+.badge.rag-on  { background: var(--green-dim); color: var(--green); display: none; }
+.badge.version { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+#model-selector-wrap { display: flex; align-items: center; gap: 8px; }
+#model-selector-wrap label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+#topbar-model {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  padding: 5px 10px; font-size: 13px; font-family: inherit;
+  outline: none; cursor: pointer;
+  transition: border-color 0.15s;
+}
+#topbar-model:focus { border-color: var(--accent); }
+
+
+.page { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.page.active { display: flex; }
+
+#page-chat { flex-direction: row; }
+
+#chat-area {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+
+#messages {
+  flex: 1; overflow-y: auto;
+  padding: 24px 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.msg-row {
+  display: flex; padding: 0 24px;
+  animation: fadeUp 0.2s ease;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.msg-row.user   { justify-content: flex-end; }
+.msg-row.assist { justify-content: flex-start; }
+
+.bubble {
+  max-width: 60%; padding: 7px 11px;
+  font-size: 13.5px; line-height: 1.45;
+  word-break: break-word; white-space: pre-wrap;
+  position: relative;
+}
+.msg-row.user   .bubble {
+  background: linear-gradient(135deg, var(--accent), #5b8cff);
+  color: #ffffff;
+  border-radius: 16px 16px 4px 16px;
+  border: none;
+  box-shadow: 0 1px 4px rgba(74,144,226,0.18);
+}
+.msg-row.assist .bubble {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 16px 16px 16px 4px;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.sources {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.source-item {
+  font-size: 11px; color: var(--text-dim);
+  display: flex; align-items: baseline; gap: 6px;
+}
+.source-idx {
+  background: var(--accent-dim); color: var(--accent);
+  border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;
+  flex-shrink: 0;
+}
+
+.status-row {
+  display: flex; padding: 0 24px; align-items: center; gap: 10px;
+}
+.status-bubble {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 7px 12px;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--text-mid);
+}
+.spinner {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.status-steps, .status-step, .step-dot { display: none; }
+.status-step.done, .status-step.active {
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+#input-area {
+  flex-shrink: 0; padding: 16px 24px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+#attachment-bar {
+  display: none; align-items: center; gap: 8px;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--accent-dim); border: 1px solid rgba(91,142,247,0.25);
+  border-radius: var(--r-sm); font-size: 13px; color: var(--accent);
+}
+#attachment-bar.show { display: flex; }
+#attachment-bar svg { flex-shrink: 0; opacity: 0.8; }
+#attachment-filename { flex: 1; font-weight: 500; }
+#attachment-remove {
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; opacity: 0.6; font-size: 16px; line-height: 1;
+  padding: 0 2px; transition: opacity 0.15s;
+}
+#attachment-remove:hover { opacity: 1; }
+
+#input-box {
+  display: flex; gap: 10px; align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 10px 10px 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#input-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+#chat-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: inherit; font-size: 14px;
+  line-height: 1.5; resize: none; min-height: 24px; max-height: 160px;
+}
+#chat-input::placeholder { color: var(--text-dim); }
+
+.icon-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); padding: 5px;
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background 0.15s; flex-shrink: 0;
+}
+.icon-btn:hover { color: var(--text); background: var(--surface2); }
+.icon-btn.active { color: var(--accent); }
+
+#send-btn {
+  background: var(--accent); border: none; cursor: pointer;
+  color: #fff; padding: 7px 9px;
+  border-radius: var(--r-sm);
+  display: flex; align-items: center;
+  transition: opacity 0.15s, transform 0.1s; flex-shrink: 0;
+}
+#send-btn:hover  { opacity: 0.88; }
+#send-btn:active { transform: scale(0.95); }
+#send-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+#input-hint {
+  margin-top: 8px; font-size: 11px; color: var(--text-dim);
+  display: flex; align-items: center; gap: 12px;
+}
+kbd {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px; font-size: 10px;
+  font-family: var(--mono); color: var(--text-mid);
+}
+
+#file-input { display: none; }
+
+.page-inner {
+  flex: 1; overflow-y: auto; padding: 28px 32px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.page-header h2 { font-size: 20px; font-weight: 700; color: var(--text); }
+.page-header p  { font-size: 13px; color: var(--text-mid); margin-top: 3px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); overflow: hidden;
+}
+.card-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-header h3 { font-size: 13px; font-weight: 600; color: var(--text); }
+.card-body { padding: 18px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 10px 14px;
+  color: var(--text-dim); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+td { padding: 12px 14px; border-bottom: 1px solid var(--border2); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.015); }
+.mono { font-family: var(--mono); font-size: 12px; }
+
+input[type=text], textarea, select {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  padding: 9px 12px; font-size: 13px; font-family: inherit; width: 100%;
+  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type=text]:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+label.field-label {
+  font-size: 11px; font-weight: 700; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  display: block; margin-bottom: 5px;
+}
+
+.btn {
+  border: none; border-radius: var(--r-sm);
+  padding: 8px 16px; font-size: 13px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { opacity: 0.88; }
+.btn-secondary {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: var(--surface3); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+.btn-danger:hover { background: var(--red-dim); }
+
+.tag {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; font-family: var(--mono);
+  background: var(--surface2); color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.tag.green  { background: var(--green-dim);  color: var(--green);  border-color: rgba(54,201,138,0.2); }
+.tag.blue   { background: var(--accent-dim); color: var(--accent); border-color: rgba(91,142,247,0.2); }
+.tag.yellow { background: var(--yellow-dim); color: var(--yellow); border-color: rgba(240,184,74,0.2); }
+.tag.red    { background: var(--red-dim);    color: var(--red);    border-color: rgba(240,93,110,0.2); }
+.tag.purple { background: var(--purple-dim); color: var(--purple); border-color: rgba(167,123,247,0.2); }
+
+.empty-state {
+  text-align: center; padding: 48px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.empty-state svg { opacity: 0.25; }
+.empty-state p { color: var(--text-dim); font-size: 13px; }
+
+#welcome {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 32px 24px; gap: 32px;
+  text-align: center;
+}
+#welcome-logo {
+  width: 56px; height: 56px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; font-weight: 900; color: #fff; letter-spacing: -2px;
+  box-shadow: 0 8px 32px rgba(91,142,247,0.25);
+}
+#welcome h2 { font-size: 22px; font-weight: 700; color: var(--text); }
+#welcome p  { font-size: 14px; color: var(--text-mid); max-width: 380px; line-height: 1.7; }
+#welcome-suggestions {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 500px; width: 100%;
+}
+.suggestion {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px;
+  text-align: left; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.suggestion:hover { border-color: var(--accent); background: var(--surface2); }
+.suggestion strong { font-size: 13px; color: var(--text); font-weight: 600; }
+.suggestion span   { font-size: 12px; color: var(--text-dim); }
+
+#rag-drop-zone {
+  border: 2px dashed var(--border); border-radius: var(--r);
+  padding: 28px 20px; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+}
+#rag-drop-zone:hover, #rag-drop-zone.drag-over {
+  border-color: var(--accent); background: var(--accent-glow);
+}
+#rag-drop-zone.has-file { border-color: var(--green); background: var(--green-dim); }
+
+#toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 999;
+  padding: 11px 18px; border-radius: var(--r);
+  font-size: 13px; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); max-width: 320px;
+  opacity: 0; transform: translateY(10px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(59,110,240,0.15);
+  display: flex; align-items: center; gap: 10px;
+}
+#toast.show { opacity: 1; transform: translateY(0); }
+#toast.ok  { border-color: var(--green); }
+#toast.err { border-color: var(--red); color: var(--red); }
+#toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+#toast.ok  #toast-dot { background: var(--green); }
+#toast.err #toast-dot { background: var(--red); }
+
+/* RAG disabled banner */
+.info-banner {
+  padding: 14px 18px; border-radius: var(--r);
+  display: flex; align-items: flex-start; gap: 12px;
+  font-size: 13px; line-height: 1.6;
+}
+.info-banner.warning {
+  background: var(--yellow-dim); border: 1px solid rgba(240,184,74,0.2); color: var(--yellow);
+}
+.info-banner svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Audit event colors */
+.evt { font-family: var(--mono); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div id="sidebar-brand">
+    <div id="sidebar-logo">Ax</div>
+    <h1>Aeon<span>ix</span></h1>
+    <div id="sidebar-status">
+      <div id="status-dot"></div>
+      <span id="status-text">…</span>
+    </div>
+  </div>
+
+  <button id="new-chat-btn" onclick="newConversation()">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    New Conversation
+  </button>
+
+  <div id="conv-list-label">Recent</div>
+  <div id="conv-list"></div>
+
+  <div id="sidebar-footer">
+    <button class="sidebar-nav-btn active" id="nav-chat" onclick="showPage('chat',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      Chat
+    </button>
+    <button class="sidebar-nav-btn" id="nav-models" onclick="showPage('models',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+      Models
+    </button>
+    <button class="sidebar-nav-btn" id="nav-rag" onclick="showPage('rag',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      Knowledge Base
+    </button>
+    <button class="sidebar-nav-btn" id="nav-audit" onclick="showPage('audit',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Audit Log
+    </button>
+  </div>
+</aside>
+
+<div id="main">
+
+  <div id="topbar">
+    <div id="topbar-title">New Conversation</div>
+    <div id="topbar-badges">
+      <span id="badge-airgap" class="badge airgap">AIR-GAP</span>
+      <span id="badge-rag"    class="badge rag-on">RAG</span>
+      <span id="badge-ver"    class="badge version">v—</span>
+    </div>
+    <div id="model-selector-wrap">
+      <label for="topbar-model">Model</label>
+      <select id="topbar-model"><option value="">Loading…</option></select>
+    </div>
+  </div>
+
+  <div class="page active" id="page-chat">
+    <div id="chat-area">
+      <div id="messages"></div>
+
+      <div id="input-area">
+        <div id="attachment-bar">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          <span id="attachment-filename"></span>
+          <button id="attachment-remove" onclick="clearAttachment()" title="Remove">✕</button>
+        </div>
+        <div id="input-box">
+          <textarea id="chat-input" rows="1"
+            placeholder="Ask anything… or attach a file for document analysis"></textarea>
+          <input type="file" id="file-input" accept=".txt,.md,.csv,.log,.rst,.pdf">
+          <button class="icon-btn" id="attach-btn" title="Attach a file for this message"
+            onclick="document.getElementById('file-input').click()">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button id="send-btn" onclick="sendMessage()" title="Send (Enter)">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+          </button>
+        </div>
+        <div id="input-hint">
+          <span><kbd>Enter</kbd> to send</span>
+          <span><kbd>Shift+Enter</kbd> for new line</span>
+          <span id="rag-hint" style="color:var(--green);display:none">
+            <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>
+            Knowledge base active
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="page-models">
+    <div class="page-inner">
+      <div class="page-header">
+        <div>
+          <h2>Installed Models</h2>
+          <p>Models are stored locally. Nothing is downloaded automatically.</p>
+        </div>
+        <button class="btn btn-secondary" onclick="loadModels()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr>
+            <th>Model</th><th>Type</th><th>Size</th><th>Quantization</th>
+            <th>SHA-256</th><th>Imported</th><th></th>
+          </tr></thead>
+          <tbody id="models-tbody">
+            <tr><td colspan="7"><div class="empty-state"><p>Loading…</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Import a model</h3></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text-mid);line-height:1.7">
+            Models must be in GGUF format. Import from a local file using the CLI:
+          </p>
+          <pre style="margin-top:10px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);font-family:var(--mono);font-size:12px;color:var(--accent);overflow-x:auto"># Language model (default)
+maranode model import /path/to/model.gguf --name mymodel --tag latest
+
+# Embedding model
+maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type embedding</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="page-rag">
+    <div class="page-inner">
+      <div class="page-header">
+        <div>
+          <h2>Knowledge Base</h2>
+          <p>Upload documents to ground AI answers in your own content.</p>
+        </div>
+        <button class="btn btn-secondary" onclick="loadCollections()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div id="rag-disabled-banner" class="info-banner warning" style="display:none">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Knowledge Base is not enabled on this server. Restart the daemon with <code style="font-family:var(--mono);background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:4px">--rag</code> or set <code style="font-family:var(--mono);background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:4px">rag.enabled = true</code> in your config file.</span>
+      </div>
+
+      <div id="rag-content" style="display:flex;flex-direction:column;gap:20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="card">
+              <div class="card-header"><h3>Add Document</h3></div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+                <div>
+                  <label class="field-label">Collection</label>
+                  <input type="text" id="rag-collection" placeholder="default">
+                </div>
+                <div>
+                  <label class="field-label">Source label <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-dim)">(optional)</span></label>
+                  <input type="text" id="rag-source" placeholder="e.g. annual-report-2024.pdf">
+                </div>
+                <div>
+                  <label class="field-label">File <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-dim)">.txt · .md · .csv · .pdf</span></label>
+                  <input type="file" id="rag-file-input" accept=".txt,.md,.csv,.log,.rst,.pdf" style="display:none">
+                  <div id="rag-drop-zone" onclick="document.getElementById('rag-file-input').click()">
+                    <div style="font-size:22px;margin-bottom:8px;opacity:0.4">📄</div>
+                    <div id="rag-file-label" style="font-size:13px;color:var(--text-mid)">Click to choose a file, or drag & drop</div>
+                    <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Supported: .txt, .md, .csv, .log, .rst, .pdf</div>
+                  </div>
+                </div>
+                <div>
+                  <label class="field-label">Or paste text</label>
+                  <textarea id="rag-text-input" rows="4" placeholder="Paste document text here…"
+                    style="font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+                </div>
+                <button class="btn btn-primary" id="rag-ingest-btn" onclick="ingestDocument()">
+                  <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add to Knowledge Base
+                </button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <div class="card-header"><h3>Collections</h3></div>
+              <table>
+                <thead><tr>
+                  <th>Name</th><th>Documents</th><th>Chunks</th><th>Embedding Model</th>
+                </tr></thead>
+                <tbody id="rag-collections-tbody">
+                  <tr><td colspan="4"><div class="empty-state"><p>Loading…</p></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="page" id="page-audit">
+    <div class="page-inner">
+      <div class="page-header">
+        <div>
+          <h2>Audit Log</h2>
+          <p>Audit log uses an HMAC chain per entry.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <select id="audit-limit" onchange="loadAudit()" style="width:auto">
+            <option value="50">Last 50</option>
+            <option value="100" selected>Last 100</option>
+            <option value="250">Last 250</option>
+            <option value="500">Last 500</option>
+          </select>
+          <button class="btn btn-secondary" onclick="loadAudit()">Refresh</button>
+        </div>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Time</th><th>Actor</th><th>Event</th><th>Detail</th>
+          </tr></thead>
+          <tbody id="audit-tbody">
+            <tr><td colspan="5"><div class="empty-state"><p>Loading…</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#main -->
+
+<div id="toast"><div id="toast-dot"></div><span id="toast-msg"></span></div>
+
+<script>
+
+const $ = id => document.getElementById(id);
+let ragAvailable = false;
+
+function toast(msg, type = '') {
+  const el = $('toast');
+  $('toast-msg').textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3200);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function relTime(iso) {
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60)   return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400)return Math.floor(s/3600) + 'h ago';
+  return new Date(iso).toLocaleDateString();
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleString(undefined, {
+    month:'short', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  });
+}
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j?.error?.message || `HTTP ${res.status}`);
+  }
+  return res;
+}
+
+
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-nav-btn').forEach(b => b.classList.remove('active'));
+  $('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'models') loadModels();
+  if (name === 'audit')  loadAudit();
+  if (name === 'rag')    loadCollections();
+}
+
+async function checkHealth() {
+  try {
+    const d = await (await apiFetch('/health')).json();
+    $('status-dot').className = 'ok';
+    $('status-text').textContent = 'online';
+    $('badge-ver').textContent = 'v' + (d.version || '?');
+    if (d.air_gap) $('badge-airgap').style.display = '';
+  } catch {
+    $('status-dot').className = 'err';
+    $('status-text').textContent = 'offline';
+  }
+  // detect rag
+  try {
+    const r = await fetch('/v1/rag/collections');
+    ragAvailable = r.status !== 501;
+  } catch { ragAvailable = false; }
+
+  if (ragAvailable) {
+    $('badge-rag').style.display = '';
+    $('rag-hint').style.display = 'inline-flex';
+  } else {
+    $('badge-rag').style.display = 'none';
+    $('rag-hint').style.display = 'none';
+  }
+}
+
+async function loadModels() {
+  const tbody = $('models-tbody');
+  tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>Loading…</p></div></td></tr>';
+
+  try {
+    const d = await (await apiFetch('/v1/models/details')).json();
+
+    // split by type
+    const llms   = d.filter(m => !m.model_type || m.model_type === 'llm');
+    const embeds = d.filter(m => m.model_type === 'embedding');
+
+    // populate chat model selector. llm only
+    const sel = $('topbar-model');
+    const cur = sel.value;
+    sel.innerHTML = '';
+    if (!llms.length) {
+      sel.innerHTML = '<option value="">No LLM models installed</option>';
+    } else {
+      llms.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.id || `${m.name}:${m.tag}`;
+        o.textContent = `${m.name}:${m.tag}`;
+        if (o.value === cur) o.selected = true;
+        sel.appendChild(o);
+      });
+    }
+
+    if (!d.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+        <p>No models installed. Use the CLI to import a GGUF model.</p>
+      </div></td></tr>`;
+      return;
+    }
+
+    const modelRow = m => {
+      const typeLabel = m.model_type === 'embedding' ? 'embedding' : 'llm';
+      const typeColor = m.model_type === 'embedding' ? 'var(--purple)' : 'var(--accent)';
+      return `
+      <tr>
+        <td><strong style="color:var(--text)">${esc(m.name)}</strong> <span class="tag blue">${esc(m.tag)}</span></td>
+        <td><span style="font-size:11px;font-weight:600;color:${typeColor}">${typeLabel}</span></td>
+        <td style="color:var(--text-mid)">${esc(m.size_human || '—')}</td>
+        <td>${m.quantization ? `<span class="tag green">${esc(m.quantization)}</span>` : '<span class="tag">—</span>'}</td>
+        <td class="mono" title="${esc(m.sha256)}" style="color:var(--text-dim)">${esc((m.sha256||'').slice(0,16))}…</td>
+        <td style="color:var(--text-dim);font-size:12px">${fmtTime(m.imported_at)}</td>
+        <td><button class="btn btn-danger" style="padding:4px 10px;font-size:12px"
+            onclick="removeModel(${JSON.stringify(m.id || m.name+':'+m.tag)})">Remove</button></td>
+      </tr>`;
+    };
+
+    let html = '';
+    if (llms.length) {
+      html += `<tr><td colspan="7" style="padding:12px 16px 6px;color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">Language Models</td></tr>`;
+      html += llms.map(modelRow).join('');
+    }
+    if (embeds.length) {
+      html += `<tr><td colspan="7" style="padding:16px 16px 6px;color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">Embedding Models</td></tr>`;
+      html += embeds.map(modelRow).join('');
+    }
+    tbody.innerHTML = html;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Error: ${esc(e.message)}</p></div></td></tr>`;
+  }
+}
+
+async function removeModel(id) {
+  if (!confirm(`Remove "${id}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch('/v1/models/' + encodeURIComponent(id), { method: 'DELETE' });
+    toast('Model removed', 'ok');
+    loadModels();
+  } catch (e) { toast('Error: ' + e.message, 'err'); }
+}
+
+const STORAGE_KEY = 'maranode_conversations';
+const MAX_STORED  = 50; // keep last 50 conversations in localStorage
+
+let conversations = [];
+let activeConvId  = null;
+
+function saveConversations() {
+  try {
+    const toSave = conversations.slice(0, MAX_STORED).map(c => ({
+      ...c,
+      messages: c.messages.slice(-100), // keep last 100 messages per conv
+    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (e) {
+    console.warn('Could not save chat history to localStorage:', e);
+  }
+}
+
+function loadConversations() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return parsed.map(c => ({ ...c, created: new Date(c.created) }));
+  } catch (e) {
+    console.warn('Could not load chat history:', e);
+    return [];
+  }
+}
+
+function newConversation() {
+  const id = Date.now();
+  conversations.unshift({ id, title: 'New Conversation', messages: [], created: new Date() });
+  saveConversations();
+  setActiveConv(id);
+  renderConvList();
+  $('messages').innerHTML = '';
+  showWelcome();
+  $('topbar-title').textContent = 'New Conversation';
+}
+
+function setActiveConv(id) {
+  activeConvId = id;
+  renderConvList();
+}
+
+function getConv() {
+  return conversations.find(c => c.id === activeConvId);
+}
+
+function deleteConversation(id, e) {
+  e.stopPropagation();
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+  conversations = conversations.filter(c => c.id !== id);
+  saveConversations();
+  if (activeConvId === id) {
+    if (conversations.length) {
+      switchConv(conversations[0].id);
+    } else {
+      newConversation();
+    }
+  } else {
+    renderConvList();
+  }
+}
+
+function renderConvList() {
+  const list = $('conv-list');
+  if (!conversations.length) {
+    list.innerHTML = `<div style="padding:12px 10px;font-size:12px;color:var(--text-dim);text-align:center">No conversations yet</div>`;
+    return;
+  }
+  list.innerHTML = conversations.map(c => `
+    <div class="conv-item ${c.id === activeConvId ? 'active' : ''}"
+         onclick="switchConv(${c.id})">
+      <div class="conv-title">${esc(c.title)}</div>
+      <div class="conv-meta">${relTime(c.created)}</div>
+      <button class="conv-del" onclick="deleteConversation(${c.id}, event)" title="Delete">✕</button>
+    </div>`).join('');
+}
+
+function switchConv(id) {
+  const conv = conversations.find(c => c.id === id);
+  if (!conv) return;
+  activeConvId = id;
+  renderConvList();
+  $('topbar-title').textContent = conv.title;
+  renderMessages(conv);
+}
+
+function renderMessages(conv) {
+  const wrap = $('messages');
+  if (!conv.messages.length) { showWelcome(); return; }
+  wrap.innerHTML = '';
+  conv.messages.forEach(m => appendBubble(m.role, m.display || m.content, m.sources));
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function showWelcome() {
+  $('messages').innerHTML = `
+    <div id="welcome">
+      <div id="welcome-logo">Ax</div>
+      <div>
+        <h2>How can I help you today?</h2>
+        <p>Ask me anything. Attach a file to analyse documents without storing them permanently. Enable the Knowledge Base to ground answers in your own data.</p>
+      </div>
+      <div id="welcome-suggestions">
+        <div class="suggestion" onclick="quickSend('Summarise the key points of an uploaded document')">
+          <strong>📄 Analyse a document</strong>
+          <span>Attach a file and ask questions about it</span>
+        </div>
+        <div class="suggestion" onclick="quickSend('What can you help me with?')">
+          <strong>💬 General questions</strong>
+          <span>Ask anything - no document needed</span>
+        </div>
+        <div class="suggestion" onclick="quickSend('What information is in the knowledge base?')">
+          <strong>🗄️ Search knowledge base</strong>
+          <span>Query your ingested documents</span>
+        </div>
+        <div class="suggestion" onclick="quickSend('Explain this to me in simple terms:')">
+          <strong>🔍 Explain a concept</strong>
+          <span>Get clear explanations of complex topics</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function quickSend(text) {
+  $('chat-input').value = text;
+  sendMessage();
+}
+
+let attachedFile = null;
+
+$('file-input').addEventListener('change', function() {
+  const f = this.files[0];
+  if (!f) return;
+  attachedFile = f;
+  $('attachment-filename').textContent = f.name;
+  $('attachment-bar').classList.add('show');
+  $('attach-btn').classList.add('active');
+});
+
+function clearAttachment() {
+  attachedFile = null;
+  $('file-input').value = '';
+  $('attachment-bar').classList.remove('show');
+  $('attach-btn').classList.remove('active');
+}
+
+function appendBubble(role, content, sources) {
+  const wrap = $('messages');
+  // remove welcome screen if present
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + (role === 'user' ? 'user' : 'assist');
+
+  let sourcesHtml = '';
+  if (sources?.length) {
+    sourcesHtml = `<div class="sources">` +
+      sources.map(s => `<div class="source-item">
+        <span class="source-idx">${s.index}</span>
+        <span>${esc(s.source)} <span style="opacity:0.5">${s.score.toFixed(3)}</span></span>
+      </div>`).join('') + `</div>`;
+  }
+
+  row.innerHTML = `<div class="bubble"><div>${esc(content)}</div>${sourcesHtml}</div>`;
+  wrap.appendChild(row);
+  wrap.scrollTop = wrap.scrollHeight;
+  return row.querySelector('.bubble');
+}
+
+function showStatusBubble() {
+  const wrap = $('messages');
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  const row = document.createElement('div');
+  row.className = 'msg-row assist';
+  row.id = 'status-indicator';
+  row.innerHTML = `<div class="status-bubble">
+    <div class="spinner"></div>
+    <span>Thinking…</span>
+  </div>`;
+  wrap.appendChild(row);
+  wrap.scrollTop = wrap.scrollHeight;
+  return row;
+}
+
+function advanceStep() { }
+
+function removeStatus() {
+  const el = $('status-indicator');
+  if (el) el.remove();
+}
+
+async function sendMessage() {
+  const input   = $('chat-input');
+  const model   = $('topbar-model').value;
+  const prompt  = input.value.trim();
+
+  if (!prompt && !attachedFile) return;
+  if (!model) { toast('Select a model first', 'err'); return;  }
+
+  if (!activeConvId) newConversation();
+  const conv = getConv();
+
+  input.value = '';
+  input.style.height = '';
+  $('send-btn').disabled = true;
+
+  const file = attachedFile;
+  if (file) clearAttachment();
+
+  const statusEl = showStatusBubble();
+  let stepIdx = 0;
+
+  let inlinePrefix = '';
+  if (file) {
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch('/v1/rag/extract', { method: 'POST', body: form });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error?.message || `HTTP ${res.status}`);
+      }
+      const d = await res.json();
+      // truncate to ~8000 chars (~2000 tokens) so the full prompt fits inside
+      // the model's 4096-token context window (leaves room for history + reply).
+      const MAX_FILE_CHARS = 8000;
+      const rawText = d.text || '';
+      const truncated = rawText.length > MAX_FILE_CHARS;
+      const fileText = truncated
+        ? rawText.slice(0, MAX_FILE_CHARS) + `\n\n[… truncated - document is ${d.chars?.toLocaleString() ?? rawText.length} chars, showing first ${MAX_FILE_CHARS.toLocaleString()} …]`
+        : rawText;
+      inlinePrefix = `[Attached file: ${d.filename}]\n\n${fileText}\n\n---\n\n`;
+      advanceStep(stepIdx++);
+    } catch (e) {
+      removeStatus();
+      toast('Could not read file: ' + e.message, 'err');
+      $('send-btn').disabled = false;
+      return;
+    }
+  }
+
+  const displayText = prompt || `[Analysing ${file?.name}]`;
+  appendBubble('user', displayText);
+  conv.messages.push({ role: 'user', content: inlinePrefix + (prompt || ''), display: displayText });
+  if (conv.messages.length === 1) {
+    conv.title = displayText.slice(0, 50);
+    $('topbar-title').textContent = conv.title;
+    renderConvList();
+  }
+  saveConversations();
+
+  if (ragAvailable) advanceStep(stepIdx++);
+  const body = {
+    model,
+    messages: conv.messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.content })),
+    stream: false,
+  };
+
+
+  try {
+    const res = await apiFetch('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const reply   = data.choices?.[0]?.message?.content || '[no response]';
+    const sources = data.sources || [];
+
+    removeStatus();
+    appendBubble('assistant', reply, sources);
+    conv.messages.push({ role: 'assistant', content: reply, sources });
+    saveConversations();
+  } catch (e) {
+    removeStatus();
+    appendBubble('assistant', '⚠ ' + e.message);
+    toast(e.message, 'err');
+  } finally {
+    $('send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+$('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+$('chat-input').addEventListener('input', function() {
+  this.style.height = '';
+  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+});
+
+
+document.getElementById('rag-file-input').addEventListener('change', function() {
+  const f = this.files[0];
+  const zone = $('rag-drop-zone');
+  if (f) {
+    $('rag-file-label').textContent = f.name;
+    zone.classList.add('has-file');
+  } else {
+    $('rag-file-label').textContent = 'Click to choose a file, or drag & drop';
+    zone.classList.remove('has-file');
+  }
+});
+
+const ragZone = $('rag-drop-zone');
+ragZone.addEventListener('dragover', e => { e.preventDefault(); ragZone.classList.add('drag-over'); });
+ragZone.addEventListener('dragleave', () => ragZone.classList.remove('drag-over'));
+ragZone.addEventListener('drop', e => {
+  e.preventDefault(); ragZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  const dt = new DataTransfer(); dt.items.add(f);
+  $('rag-file-input').files = dt.files;
+  $('rag-file-label').textContent = f.name;
+  ragZone.classList.add('has-file');
+});
+
+async function loadCollections() {
+  const tbody = $('rag-collections-tbody');
+  tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>Loading…</p></div></td></tr>';
+  try {
+    const data = await (await apiFetch('/v1/rag/collections')).json();
+    $('rag-disabled-banner').style.display = 'none';
+    $('rag-content').style.display = '';
+    if (!data.length) {
+      tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">
+        <p>No collections yet. Add a document to get started.</p>
+      </div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.map(c => `<tr>
+      <td><strong style="color:var(--text)">${esc(c.name)}</strong></td>
+      <td style="color:var(--text-mid)">${esc(c.documents)}</td>
+      <td style="color:var(--text-mid)">${esc(c.chunks)}</td>
+      <td class="mono" style="font-size:11px;color:var(--text-dim)">${esc(c.embedding_model)}</td>
+    </tr>`).join('');
+  } catch (e) {
+    if (e.message.includes('501') || e.message.includes('not enabled')) {
+      $('rag-disabled-banner').style.display = '';
+      $('rag-content').style.display = 'none';
+    } else {
+      tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><p>Error: ${esc(e.message)}</p></div></td></tr>`;
+    }
+  }
+}
+
+async function ingestDocument() {
+  const collection = $('rag-collection').value.trim() || 'default';
+  const source     = $('rag-source').value.trim();
+  const file       = $('rag-file-input').files[0];
+  const text       = $('rag-text-input').value.trim();
+
+  if (!file && !text) { toast('Choose a file or paste text', 'err'); return; }
+
+  const btn = $('rag-ingest-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Adding…';
+
+  try {
+    let data;
+    if (file) {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      form.append('collection', collection);
+      if (source) form.append('source', source);
+      const res = await fetch('/v1/rag/documents/upload', { method: 'POST', body: form });
+      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j?.error?.message || `HTTP ${res.status}`); }
+      data = await res.json();
+    } else {
+      data = await (await apiFetch('/v1/rag/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection, source: source || 'pasted-text', text }),
+      })).json();
+    }
+    toast(`Added to "${data.collection}" - ${data.chunks} chunks indexed`, 'ok');
+    $('rag-source').value = '';
+    $('rag-text-input').value = '';
+    $('rag-file-input').value = '';
+    $('rag-file-label').textContent = 'Click to choose a file, or drag & drop';
+    $('rag-drop-zone').classList.remove('has-file');
+    loadCollections();
+  } catch (e) {
+    toast('Failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add to Knowledge Base';
+  }
+}
+
+
+function auditSummary(ev) {
+  if (!ev) return '';
+  switch (ev.event) {
+    case 'daemon_start':      return `v${esc(ev.version)} · air_gap=${ev.air_gap}`;
+    case 'daemon_stop':       return esc(ev.reason);
+    case 'model_imported':    return `${esc(ev.model?.name)}:${esc(ev.model?.tag)} · ${Math.round((ev.size_bytes||0)/1048576)}MB`;
+    case 'model_removed':     return `${esc(ev.model?.name)}:${esc(ev.model?.tag)}`;
+    case 'inference_start':   return `${esc(ev.model?.name)}:${esc(ev.model?.tag)}`;
+    case 'inference_complete':return `${esc(ev.tokens_in)}->${esc(ev.tokens_out)} tokens · ${esc(ev.duration_ms)}ms`;
+    case 'inference_failed':  return esc(ev.reason);
+    case 'rag_document_ingested': return `${esc(ev.source)} -> ${esc(ev.collection)} (${esc(ev.chunks)} chunks)`;
+    case 'rag_retrieval':     return `${esc(ev.collection)} · ${esc(ev.hits)} hits`;
+    case 'audit_verified':    return `${esc(ev.entries)} entries · ok=${ev.ok}`;
+    default: return esc(JSON.stringify(ev).slice(0, 80));
+  }
+}
+
+function eventTagClass(type) {
+  const map = {
+    daemon_start:'green', daemon_stop:'yellow',
+    model_imported:'blue', model_removed:'yellow',
+    inference_complete:'green', inference_failed:'red',
+    rag_document_ingested:'purple', rag_retrieval:'blue',
+    audit_verified:'green',
+  };
+  return map[type] || '';
+}
+
+async function loadAudit() {
+  const tbody = $('audit-tbody');
+  const limit = $('audit-limit').value;
+  tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>Loading…</p></div></td></tr>';
+  try {
+    const data = await (await apiFetch(`/v1/audit/entries?limit=${limit}`)).json();
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>No audit entries yet.</p></div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = [...data].reverse().map(e => `<tr>
+      <td class="mono" style="color:var(--text-dim)">${e.seq}</td>
+      <td style="white-space:nowrap;color:var(--text-dim);font-size:12px">${fmtTime(e.ts)}</td>
+      <td><span class="tag">${esc(e.actor)}</span></td>
+      <td><span class="tag ${eventTagClass(e.event?.event)} evt">${esc(e.event?.event||'?')}</span></td>
+      <td style="color:var(--text-mid);font-size:12px">${auditSummary(e.event)}</td>
+    </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><p>Error: ${esc(e.message)}</p></div></td></tr>`;
+  }
+}
+
+
+conversations = loadConversations();
+if (conversations.length) {
+  activeConvId = conversations[0].id;
+  renderConvList();
+  $('topbar-title').textContent = conversations[0].title;
+  renderMessages(conversations[0]);
+} else {
+  newConversation();
+}
+checkHealth();
+loadModels();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
