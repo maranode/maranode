@@ -133,7 +133,6 @@ jobs:
             ${{ env.ARCHIVE }}.sig
             ${{ env.ARCHIVE }}.crt
 
-  # Build .deb packages
   deb:
     name: Package .deb (${{ matrix.arch }})
     needs: build
@@ -199,7 +198,6 @@ jobs:
             ${{ env.DEB }}
             ${{ env.DEB }}.sha256
 
-  # Publish GitHub Release
   release:
     name: Publish release
     needs: [build, deb]
@@ -223,7 +221,6 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
 
-  # trigger downstream package repo updates
   notify:
     name: Trigger package updates
     needs: release

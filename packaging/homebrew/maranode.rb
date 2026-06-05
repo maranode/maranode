@@ -2,7 +2,7 @@ class Maranode < Formula
   desc "Private, air-gapped AI inference runtime"
   homepage "https://github.com/maranode/maranode"
   version "VERSION"
-  license "MIT"
+  license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?

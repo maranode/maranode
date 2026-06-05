@@ -34,7 +34,7 @@ Designed for: **healthcare (HIPAA), legal, finance, government, defense, any reg
 | **Compliance exports** (GDPR, HIPAA, SOC 2, ISO 27001) | — | — | ✓ |
 | **Multi-tenant workspaces** | — | — | ✓ |
 | **RAG — fully local, no external vector DB** | — | — | ✓ |
-| **TPM attestation** (cryptographic proof of runtime integrity) | — | — | ✓ developing |
+| **TPM attestation** (cryptographic proof of runtime integrity) | — | — | ✓ beta |
 | **Single binary, zero runtime dependencies** | — | — | ✓ |
 
 Ollama is excellent for development. It is not designed for environments where you need to prove — not just claim — that data never left the machine. Maranode is.
