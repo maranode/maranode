@@ -114,11 +114,15 @@ make build          # auto-detects Metal / CUDA / ROCm / OpenVINO / CPU
 ## Run your first model
 
 ```bash
-# Import a model (works offline — no network needed)
+# Pull from Hugging Face (online — disable air-gap first if the daemon is running)
+maranode model pull bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
+  --name llama3.2 --tag 3b --quant Q4_K_M
+
+# Or import from disk (offline — no network needed)
 maranode model import /path/to/Llama-3.2-3B-Q4_K_M.gguf --name llama3.2 --tag 3b
 
 # Ask something
-maranode chat "Summarize the GDPR Article 30 obligations for data processors"
+maranode chat "Summarize the financial tables of first quarter"
 ```
 
 Web UI at `http://localhost:11984/ui`
