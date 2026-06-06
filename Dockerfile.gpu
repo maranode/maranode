@@ -74,6 +74,7 @@ RUN cargo build --release \
 
 # Real build
 COPY crates/ crates/
+COPY ui/     ui/
 RUN find crates -name "*.rs" -exec touch {} +
 
 RUN cargo build --release \

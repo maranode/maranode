@@ -93,6 +93,7 @@ RUN cargo build --release --bin maranoded --bin maranode || true
 # real build
 COPY crates/ crates/
 COPY tests/  tests/
+COPY ui/     ui/
 
 # Touch source files so cargo sees them as newer than the stub build.
 RUN find crates -name "*.rs" -exec touch {} +

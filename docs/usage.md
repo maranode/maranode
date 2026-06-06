@@ -69,7 +69,7 @@ maranode model list
 
 ```bash
 # CLI
-maranode chat "Summarize the GDPR Article 30 requirements"
+maranode chat "Summarize the financial tables of first quarter"
 
 # HTTP (OpenAI-compatible)
 curl http://localhost:11984/v1/chat/completions \
