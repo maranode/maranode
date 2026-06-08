@@ -6,10 +6,11 @@ Most local AI tools are built for developers on laptops. Maranode is built for h
 
 **What makes it different:**
 
-- Network isolation is enforced at the **kernel level** (iptables OUTPUT chain default-DROP), not a config flag you can accidentally disable
-- Every inference, model load, and config change is written to a **tamper-evident HMAC-chained audit log** — one command to verify integrity, one command to export GDPR/HIPAA/SOC 2 evidence
-- **Single Rust binary.** No Python runtime, no sidecar daemons, no external database. The entire state is SQLite and flat files — you can inspect it with `cat`
-- Drop-in **OpenAI-compatible API** — existing code works with one line changed
+- **You can prove what it did.** Every inference, model load, and config change goes into a tamper-evident, HMAC-chained audit log. One command verifies the whole chain; one command exports GDPR/HIPAA/SOC 2 evidence.
+- **It fails closed.** Egress is default-deny from the moment the daemon starts (iptables OUTPUT DROP), and you can confirm it with your own tools — `iptables -L`, `tcpdump` — without trusting us. If isolation or the audit log cannot be guaranteed, inference does not run.
+- **No telemetry, no phone-home.** No update checker, no usage beacon, ever. The binary talks to nothing unless you tell it to.
+
+The rest is table stakes, and Maranode has it too: OpenAI-compatible API, GPU/NPU/Metal acceleration, a single binary with no external services. None of that is the reason to use it.
 
 Pre-alpha. Core runtime is working; hardening is ongoing.
 
@@ -25,23 +26,22 @@ Designed for: **healthcare (HIPAA), legal, finance, government, defense, any reg
 
 ## How it compares
 
+Ollama and LM Studio already cover the basics — OpenAI-compatible API, GPU/NPU/Metal acceleration — and so does Maranode (a single binary, no external services). The table below is only the differences that matter for a regulated deployment.
+
 | | Ollama | LM Studio | Maranode |
 |---|:---:|:---:|:---:|
-| OpenAI-compatible API | ✓ | ✓ | ✓ |
-| GPU / NPU / Metal acceleration | ✓ | ✓ | ✓ |
-| **Kernel-level network air-gap** | — | — | ✓ |
+| **Default-deny egress, verifiable** | — | — | ✓ |
 | **Tamper-evident audit log** | — | — | ✓ |
 | **Compliance exports** (GDPR, HIPAA, SOC 2, ISO 27001) | — | — | ✓ |
 | **Multi-tenant workspaces** | — | — | ✓ |
-| **RAG — fully local, no external vector DB** | — | — | ✓ |
-| **TPM attestation** (cryptographic proof of runtime integrity) | — | — | ✓ beta |
-| **Single binary, zero runtime dependencies** | — | — | ✓ |
+| **Built-in local RAG** (no external vector DB) | — | — | ✓ |
+| **TPM attestation** (verify runtime integrity) | — | — | ✓ partial |
 
 Ollama is excellent for development. It is not designed for environments where you need to prove — not just claim — that data never left the machine. Maranode is.
 
 ---
 
-## The isolation is real
+## Verify the isolation yourself
 
 ```bash
 # Verify isolation yourself — no need to trust Maranode
@@ -144,9 +144,9 @@ client.chat.completions.create(
 
 ### Privacy and isolation
 
-**Kernel-level air-gap** — iptables OUTPUT default-DROP. Not a config option, not a flag — a kernel-enforced rule applied at daemon startup. Toggle it off explicitly if you need outbound access (e.g., to pull a model), then back on. Verify with standard Linux tools at any time without touching Maranode.
+**Default-deny network isolation** — the iptables OUTPUT chain is set to DROP at daemon startup, not left to a config flag you can forget. Toggle it off explicitly when you need to pull a model, then back on. Check it any time with `iptables -L` and `tcpdump` — you do not have to trust Maranode to verify it.
 
-**Encrypted prompt storage** — prompts are never written to disk verbatim. The audit log stores the SHA-256 hash of each prompt. Full content logging is an explicit opt-in with separate retention controls.
+**Prompts are not stored by default** — the audit log records the SHA-256 hash of a prompt, not the text. (A hash is a fingerprint, not encryption; the point is that the content is never written to disk at all unless you opt in.) Full-content logging is an explicit opt-in with its own retention controls.
 
 **HMAC-chained audit log** — every event (inference, model import, config reload, daemon start/stop) is chained with an HMAC. A deleted or modified entry breaks the chain. `maranode audit verify` checks the entire chain in one command.
 
@@ -162,7 +162,7 @@ client.chat.completions.create(
 
 ### Operations
 
-**Single binary** — `maranoded` (daemon) and `maranode` (CLI). No Python interpreter, no database server, no sidecar processes. State is SQLite + flat files on disk — inspectable with `cat`, backupable with `cp`, auditable without any special tooling.
+**Single binary, no external services** — `maranoded` (daemon) and `maranode` (CLI). No Python interpreter, no database server, no sidecar processes. State is SQLite plus flat files, so a backup is a file copy and there is no extra service to secure or patch.
 
 **Broad hardware support** — CPU (x86_64, aarch64), NVIDIA CUDA, AMD ROCm, Apple Metal, Intel NPU via OpenVINO, AMD Ryzen AI XDNA, Vulkan. Device selected automatically at startup.
 
@@ -182,12 +182,13 @@ client.chat.completions.create(
 - [docs/verification.md](docs/verification.md) — network isolation and attestation verification
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design, trust model, threat model
 - [ROADMAP.md](ROADMAP.md) — what is done, what is next, what we will not do
+- [MOAT-ROADMAP.md](MOAT-ROADMAP.md) — the differentiating features, broken into build steps
 
 ---
 
 ## Status
 
-Phase 0. Core inference, model store, audit log, network isolation, RAG, and workspace isolation are implemented. NPU acceleration, full web UI, and TPM attestation are in active development.
+Phase 0. Core inference, model store, audit log, network isolation, RAG, and workspace isolation are implemented. NPU acceleration and the full web UI are in active development; TPM attestation is partial (binary hash and PCR read work today).
 
 ---
 
