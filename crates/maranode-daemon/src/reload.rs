@@ -83,6 +83,7 @@ pub struct StartupSnapshot {
     pub rag_enabled: bool,
     pub embedding_model: String,
     pub unix_socket: Option<String>,
+    pub max_parallel: usize,
 }
 
 #[derive(Clone)]
@@ -132,6 +133,9 @@ impl ReloadServices {
             && self.pins.embedding_model.is_none()
         {
             requires_restart.push("rag.embedding_model".into());
+        }
+        if cfg.inference.max_parallel != self.snapshot.max_parallel {
+            requires_restart.push("inference.max_parallel".into());
         }
         let effective_unix = cfg.unix_socket.clone();
         if effective_unix != self.snapshot.unix_socket && self.pins.unix_socket.is_none() {

@@ -163,18 +163,19 @@ See [docs/users.md](users.md) for the full reference including HTTP API, OIDC, L
 
 ## Request queue
 
-**Maranode serialises all inference requests - only one runs at a time.** Concurrent requests wait in a bounded queue instead of competing for the model context, which would corrupt output quality under load.
-
-If the queue fills up, new requests are rejected immediately with HTTP 503 rather than stacking up silently. The current queue depth is visible in the web UI stats bar and at `GET /stats`.
+Maranode runs up to `inference.max_parallel` requests at the same time. Additional requests wait in a bounded queue. If the queue fills up, new requests are rejected immediately with HTTP 503. The current queue depth is visible in the web UI stats bar and at `GET /stats`.
 
 Configure in `config.toml`:
 
 ```toml
 [inference]
+max_parallel    = 4    # requests running simultaneously (default 4)
 max_queue_depth = 32   # reject with 503 if more than this many are waiting
 ```
 
-Default is 32. Set higher for deployments with many concurrent users (e.g. a hospital with 50+ staff), lower for single-user workstations where you'd rather fail fast than wait. Set to `0` for unlimited (not recommended).
+**`max_parallel`** — default is 4. Each parallel slot holds its own KV cache in RAM (roughly 1-2 GB per slot for a 7B Q4 model on CPU). Lower this on memory-constrained machines; raise it for GPU deployments or high-concurrency servers. Requires a daemon restart to change.
+
+**`max_queue_depth`** — default is 32. Set higher for many concurrent users, lower for single-user workstations. Set to `0` for unlimited (not recommended).
 
 ## Configuration file
 

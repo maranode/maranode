@@ -150,6 +150,7 @@ async fn main() -> Result<()> {
         rag_enabled: cfg.rag.enabled,
         embedding_model: cfg.rag.embedding_model.clone(),
         unix_socket: cfg.unix_socket.clone(),
+        max_parallel: cfg.inference.max_parallel,
     };
 
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -259,10 +260,14 @@ async fn main() -> Result<()> {
         Arc::new(LlamaCppEngine::new(device_pref).context("initialising llama.cpp engine")?);
 
     let max_queue = cfg.inference.max_queue_depth;
-    let inference_queue = InferenceQueue::new(raw_engine, max_queue);
+    let max_parallel = cfg.inference.max_parallel;
+    let inference_queue = InferenceQueue::new(raw_engine, max_queue, max_parallel);
     let engine: Arc<dyn InferenceEngine> = inference_queue.clone();
 
-    info!("Inference queue ready (max_waiting={})", max_queue,);
+    info!(
+        "Inference queue ready (max_parallel={}, max_waiting={})",
+        max_parallel, max_queue,
+    );
 
     let rag = if cfg.rag.enabled {
         let embed_model = ModelId::parse(&cfg.rag.embedding_model).ok_or_else(|| {

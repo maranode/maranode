@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Semaphore};
 
 use maranode_common::models::InferenceDevice;
 
@@ -12,16 +12,19 @@ use crate::types::{InferenceRequest, InferenceResponse, Token};
 
 pub struct InferenceQueue {
     inner: Arc<dyn InferenceEngine>,
-    mutex: Mutex<()>,
+    semaphore: Arc<Semaphore>,
+    max_parallel: usize,
     waiting: AtomicUsize,
     max_waiting: AtomicUsize,
 }
 
 impl InferenceQueue {
-    pub fn new(inner: Arc<dyn InferenceEngine>, max_waiting: usize) -> Arc<Self> {
+    pub fn new(inner: Arc<dyn InferenceEngine>, max_waiting: usize, max_parallel: usize) -> Arc<Self> {
+        let parallel = max_parallel.max(1);
         Arc::new(Self {
             inner,
-            mutex: Mutex::new(()),
+            semaphore: Arc::new(Semaphore::new(parallel)),
+            max_parallel: parallel,
             waiting: AtomicUsize::new(0),
             max_waiting: AtomicUsize::new(max_waiting),
         })
@@ -35,13 +38,16 @@ impl InferenceQueue {
         self.max_waiting.load(Relaxed)
     }
 
+    pub fn max_parallel(&self) -> usize {
+        self.max_parallel
+    }
+
     /// change max waiting requests at runtime. Value 0 means no limit.
     pub fn set_max_waiting(&self, max_waiting: usize) {
         self.max_waiting.store(max_waiting, Relaxed);
     }
 
     fn check_capacity(&self) -> Result<()> {
-        // max_waiting 0 means no limit (see InferenceConfig docs)
         let max = self.max_waiting.load(Relaxed);
         if max != 0 {
             let waiting = self.waiting.load(Relaxed);
@@ -71,7 +77,7 @@ impl InferenceEngine for InferenceQueue {
         self.check_capacity()?;
         self.waiting.fetch_add(1, Ordering::Relaxed);
         let _wait = WaitGuard(&self.waiting);
-        let _guard = self.mutex.lock().await;
+        let _permit = self.semaphore.acquire().await.expect("semaphore closed");
         self.inner.generate(req).await
     }
 
@@ -82,7 +88,13 @@ impl InferenceEngine for InferenceQueue {
         }
         self.waiting.fetch_add(1, Ordering::Relaxed);
         let _wait = WaitGuard(&self.waiting);
-        let _guard = self.mutex.lock().await;
+        let _permit = match self.semaphore.acquire().await {
+            Ok(p) => p,
+            Err(_) => {
+                let _ = tx.send(Err(anyhow::anyhow!("inference queue closed"))).await;
+                return;
+            }
+        };
         self.inner.generate_stream(req, tx).await;
     }
 

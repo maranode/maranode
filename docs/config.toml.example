@@ -48,18 +48,22 @@
 #
 # device = "auto"
 
-# [Inference queue]
+# [Inference]
 #
-# llama.cpp runs one inference at a time. The queue serialises concurrent
-# requests so they wait rather than competing for the same model context.
+# max_parallel   - how many requests run at the same time.
+#                  Default is 4. Each parallel slot keeps its own KV cache in
+#                  RAM: roughly 1-2 GB per slot for a 7B Q4 model on CPU.
+#                  On GPU the cost comes from VRAM instead.
+#                  Lower this on memory-constrained machines (e.g. set 1 for
+#                  a single-user workstation with limited RAM).
+#                  Raise it for GPU deployments or high-concurrency servers.
+#                  Requires daemon restart to take effect.
 #
-# max_queue_depth - how many requests may wait before new ones are rejected
-# with HTTP 503. Tune this based on expected concurrency and acceptable wait
-# times. A hospital with 50 concurrent users could set this to 50; a personal
-# workstation can leave it at the default.
-# 0 = unlimited (requests stack up indefinitely - not recommended).
+# max_queue_depth - how many requests may wait for a slot before new ones are
+#                  rejected with HTTP 503. 0 = unlimited (not recommended).
 #
 # [inference]
+# max_parallel    = 4
 # max_queue_depth = 32
 
 # [Assistant identity & system prompt]

@@ -36,12 +36,18 @@ pub struct InferenceConfig {
     /// max waiting requests. New requests get 503 when full.
     /// value 0 means no limit.
     pub max_queue_depth: usize,
+    /// how many requests may run in parallel. default is 4.
+    /// on CPU, each parallel slot holds its own KV cache in RAM (~1-2 GB for a 7B model).
+    /// lower this on memory-constrained machines; raise it for GPU deployments with many users.
+    /// changing this requires a daemon restart.
+    pub max_parallel: usize,
 }
 
 impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
             max_queue_depth: 32,
+            max_parallel: 4,
         }
     }
 }
