@@ -182,8 +182,6 @@ client.chat.completions.create(
 - [docs/verification.md](docs/verification.md) — network isolation and attestation verification
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design, trust model, threat model
 - [ROADMAP.md](ROADMAP.md) — what is done, what is next, what we will not do
-- [MOAT-ROADMAP.md](MOAT-ROADMAP.md) — the differentiating features, broken into build steps
-
 ---
 
 ## Status
