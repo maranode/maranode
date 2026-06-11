@@ -19,9 +19,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use maranode_audit::AuditLog;
+use maranode_audit::{sign as audit_sign, AuditLog};
 use maranode_common::events::AuditEvent;
 use maranode_common::models::{ChatMessage, ChatRole, ModelId};
+use maranode_common::receipt::{DecodeParams, InferenceReceipt, RECEIPT_VERSION};
 use maranode_inference::types::InferenceRequest;
 
 use crate::error::{ApiError, ApiResult};
@@ -486,6 +487,24 @@ async fn run(
         )
         .await;
 
+    let receipt = if req.with_receipt {
+        build_receipt(
+            &state,
+            &request_id,
+            &model_id.to_string(),
+            &manifest.sha256,
+            manifest.quantization.clone(),
+            &messages,
+            &resp.content,
+            resp.tokens_in,
+            resp.tokens_out,
+            req.temperature,
+            req.max_tokens,
+        )
+    } else {
+        None
+    };
+
     Ok(Json(ChatCompletionResponse {
         id: format!("chatcmpl-{}", request_id),
         object: "chat.completion",
@@ -505,8 +524,58 @@ async fn run(
             total_tokens: resp.tokens_in.saturating_add(resp.tokens_out),
         },
         sources: rag_sources,
+        receipt,
     })
     .into_response())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_receipt(
+    state: &AppState,
+    request_id: &str,
+    model_id: &str,
+    model_sha256: &str,
+    model_quant: Option<String>,
+    messages: &[ChatMessage],
+    output: &str,
+    tokens_in: u32,
+    tokens_out: u32,
+    temperature: f32,
+    max_tokens: u32,
+) -> Option<InferenceReceipt> {
+    let sk = audit_sign::load_or_create(&state.data_dir).ok()?;
+    let signing_key_id = hex::encode(sk.verifying_key().to_bytes());
+
+    let input_sha256 = InferenceReceipt::hash_messages(messages);
+    let output_sha256 = InferenceReceipt::hash_output(output);
+
+    let mut receipt = InferenceReceipt {
+        version: RECEIPT_VERSION,
+        receipt_id: Uuid::new_v4(),
+        request_id: request_id.to_string(),
+        timestamp: Utc::now(),
+        model_id: model_id.to_string(),
+        model_sha256: model_sha256.to_string(),
+        model_quant,
+        input_sha256,
+        output_sha256,
+        decode_params: DecodeParams {
+            temperature: Some(temperature),
+            top_k: None,
+            max_tokens: Some(max_tokens),
+            seed: None,
+            deterministic: false,
+        },
+        tokens_in,
+        tokens_out,
+        signing_key_id,
+        tpm_pcr: None,
+        signature: None,
+    };
+
+    let sig = audit_sign::sign(&sk, &receipt.canonical_bytes());
+    receipt.signature = Some(hex::encode(sig));
+    Some(receipt)
 }
 
 fn make_chunk_event(

@@ -5,6 +5,7 @@ pub mod events;
 pub mod gguf;
 pub mod models;
 pub mod paths;
+pub mod receipt;
 pub mod secure;
 pub mod types;
 pub mod user;

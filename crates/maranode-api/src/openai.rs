@@ -1,5 +1,6 @@
 //! request and response types for openai api
 
+use maranode_common::receipt::InferenceReceipt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -15,6 +16,9 @@ pub struct ChatCompletionRequest {
     pub stop: Option<Vec<String>>,
     #[serde(default)]
     pub rag: Option<RagOptions>,
+    /// when true, a signed proof receipt is included in the response
+    #[serde(default)]
+    pub with_receipt: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +58,8 @@ pub struct ChatCompletionResponse {
     pub usage: UsageInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<RagSource>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<InferenceReceipt>,
 }
 
 /// source chunk with citation, sent together with RAG-based answer
