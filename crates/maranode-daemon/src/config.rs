@@ -29,6 +29,7 @@ pub struct DaemonConfig {
     pub rag: RagConfig,
     pub assistant: AssistantConfig,
     pub logging: LoggingConfig,
+    pub smtp: Option<SmtpConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,6 +161,21 @@ impl Default for LoggingConfig {
 fn default_viewer() -> String {
     "viewer".into()
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmtpConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    /// envelope From address for outgoing mail
+    pub from: String,
+    /// use STARTTLS (true) or plain TCP (false); TLS-on-connect is not supported
+    #[serde(default = "bool_true")]
+    pub starttls: bool,
+}
+
+fn bool_true() -> bool { true }
 fn default_ldap_uid() -> String {
     "uid".into()
 }

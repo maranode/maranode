@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use maranode_api::{
     AppState, IdentityConfig, LdapCfg, OidcCfg, RagIngestPolicy, RuntimeSettings, SamlCfg,
+    SmtpCfg,
 };
 use maranode_common::events::AuditEvent;
 use maranode_common::types::AirGapMode;
@@ -242,6 +243,14 @@ pub fn runtime_from_config(
         air_gap,
         log_prompts: cfg.logging.log_prompts,
         content_log_retention_days: cfg.logging.content_log_retention_days,
+        smtp: cfg.smtp.as_ref().map(|s| SmtpCfg {
+            host: s.host.clone(),
+            port: s.port,
+            username: s.username.clone(),
+            password: s.password.clone(),
+            from: s.from.clone(),
+            starttls: s.starttls,
+        }),
     }
 }
 

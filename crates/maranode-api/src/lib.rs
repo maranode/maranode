@@ -10,7 +10,7 @@ pub mod user_ctx;
 pub mod workspace_ctx;
 
 pub use rag_embedder::EngineEmbedder;
-pub use runtime::{RuntimeSettings, SharedRuntime};
+pub use runtime::{RuntimeSettings, SharedRuntime, SmtpCfg};
 pub use state::{
     new_oidc_pending, AppState, IdentityConfig, LdapCfg, OidcCfg, RagIngestPolicy, SamlCfg,
 };
@@ -37,6 +37,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::stats::router())
         .merge(routes::workspaces::router())
         .merge(routes::users::router())
+        .merge(routes::reset::router())
         .merge(routes::identity::router())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())

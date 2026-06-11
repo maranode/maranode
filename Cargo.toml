@@ -79,6 +79,7 @@ oauth2     = "4"
 ldap3      = { version = "0.11", default-features = false, features = ["tls-rustls"] }
 rsa        = { version = "0.9", features = ["sha2"] }
 x509-cert  = "0.2"
+lettre     = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"] }
 base64     = "0.22"
 flate2     = "1"
 quick-xml  = { version = "0.36", features = ["serialize"] }

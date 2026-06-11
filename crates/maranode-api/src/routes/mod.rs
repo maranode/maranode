@@ -8,5 +8,6 @@ pub mod models;
 pub mod rag;
 pub mod stats;
 pub mod ui;
+pub mod reset;
 pub mod users;
 pub mod workspaces;

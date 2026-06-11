@@ -67,6 +67,14 @@ impl UserDb {
         Ok(rows.next().transpose()?)
     }
 
+    pub fn get_by_email(&self, email: &str) -> Result<Option<User>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, username, email, password_hash, role, provider, provider_sub, active, created_at, last_login FROM users WHERE email = ?1"
+        )?;
+        let mut rows = stmt.query_map(params![email], row_to_user)?;
+        Ok(rows.next().transpose()?)
+    }
+
     pub fn get_by_username(&self, username: &str) -> Result<Option<User>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, username, email, password_hash, role, provider, provider_sub, active, created_at, last_login FROM users WHERE username = ?1"
@@ -213,6 +221,41 @@ impl UserDb {
             params![user_id.to_string(), keep_token],
         )?;
         Ok(n as u64)
+    }
+
+    pub fn create_reset_token(&self, user_id: Uuid) -> Result<String> {
+        self.conn.execute(
+            "DELETE FROM password_reset_tokens WHERE expires_at < ?1",
+            params![Utc::now().to_rfc3339()],
+        )?;
+        let token = Uuid::new_v4().to_string().replace('-', "")
+            + &Uuid::new_v4().to_string().replace('-', "");
+        let expires = Utc::now() + Duration::minutes(30);
+        self.conn.execute(
+            "INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?1,?2,?3)",
+            params![token, user_id.to_string(), expires.to_rfc3339()],
+        )?;
+        Ok(token)
+    }
+
+    pub fn consume_reset_token(&self, token: &str) -> Result<Option<Uuid>> {
+        let now = Utc::now().to_rfc3339();
+        let result = self.conn.query_row(
+            "SELECT user_id FROM password_reset_tokens WHERE token = ?1 AND expires_at > ?2",
+            params![token, now],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(uid_str) => {
+                self.conn.execute(
+                    "DELETE FROM password_reset_tokens WHERE token = ?1",
+                    params![token],
+                )?;
+                Ok(Uuid::parse_str(&uid_str).ok())
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
