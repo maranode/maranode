@@ -402,7 +402,6 @@ async fn run(
             .chain(ReceiverStream::new(rx).map(move |result| {
                 let id = id.clone();
                 let model = model.clone();
-                // keep guard_hold in closure so usage guard lives until stream done
                 let _ = guard_hold.as_ref();
                 match result {
                     Ok(token) => {

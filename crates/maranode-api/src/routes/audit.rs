@@ -98,7 +98,6 @@ async fn list_entries(
 
 #[derive(Debug, Deserialize)]
 struct ExportQuery {
-    /// export format: gdpr, hipaa, soc2, or iso27001
     format: String,
     workspace: Option<String>,
     from: Option<String>,

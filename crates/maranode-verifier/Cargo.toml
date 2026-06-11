@@ -1,0 +1,19 @@
+[package]
+name        = "maranode-verifier"
+description = "Offline receipt verifier for Maranode inference proofs"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[[bin]]
+name = "maranode-verify"
+path = "src/main.rs"
+
+[dependencies]
+maranode-common = { workspace = true }
+
+serde_json  = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex         = { workspace = true }
+sha2        = { workspace = true }

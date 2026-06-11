@@ -33,13 +33,10 @@ struct SignedReport {
     #[serde(flatten)]
     report: AttestationReport,
     nonce: String,
-    /// Ed25519 signature over "<report_sha256><nonce>" as UTF-8 bytes, hex-encoded
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_sig: Option<String>,
-    /// hex-encoded Ed25519 public key used to produce ed25519_sig
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_pubkey: Option<String>,
-    /// legacy HMAC-SHA256 with audit key; kept for existing integrations
     #[serde(skip_serializing_if = "String::is_empty")]
     hmac: String,
 }

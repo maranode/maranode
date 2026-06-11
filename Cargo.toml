@@ -11,6 +11,7 @@ members = [
     "crates/maranode-api",
     "crates/maranode-daemon",
     "crates/maranode-cli",
+    "crates/maranode-verifier",
     "crates/maranode-bench",
     "tests",
 ]
