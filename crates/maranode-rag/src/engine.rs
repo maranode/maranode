@@ -51,6 +51,19 @@ impl RagEngine {
         })
     }
 
+    pub fn open_with_dek(
+        data_dir: &Path,
+        embedder: Arc<dyn Embedder>,
+        config: RagConfig,
+        dek: [u8; 32],
+    ) -> Result<Self> {
+        Ok(Self {
+            store: VectorStore::open(data_dir)?.with_dek(dek),
+            embedder,
+            config: Arc::new(RwLock::new(config)),
+        })
+    }
+
     pub fn in_memory(embedder: Arc<dyn Embedder>, config: RagConfig) -> Result<Self> {
         Ok(Self {
             store: VectorStore::open_in_memory()?,

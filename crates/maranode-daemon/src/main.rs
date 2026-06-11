@@ -291,8 +291,18 @@ async fn main() -> Result<()> {
             store.clone(),
             embed_model,
         ));
-        let rag_engine = RagEngine::open(&cfg.data_dir, embedder, rag_config)
-            .context("initialising RAG engine")?;
+        let rag_dek = workspace_db
+            .get_dek_bytes("default")
+            .ok()
+            .flatten();
+        let rag_engine = match rag_dek {
+            Some(dek) => {
+                info!("RAG store encryption: active (default workspace DEK)");
+                RagEngine::open_with_dek(&cfg.data_dir, embedder, rag_config, dek)
+            }
+            None => RagEngine::open(&cfg.data_dir, embedder, rag_config),
+        }
+        .context("initialising RAG engine")?;
         info!(
             "RAG enabled (model '{}', collection '{}')",
             cfg.rag.embedding_model, cfg.rag.default_collection

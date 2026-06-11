@@ -6,6 +6,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
+use crate::crypt::{maybe_decrypt, maybe_encrypt};
 use crate::math::{blob_to_vec, dot, vec_to_blob};
 
 #[derive(Debug, Clone)]
@@ -52,6 +53,7 @@ pub struct ChunkRow {
 #[derive(Clone)]
 pub struct VectorStore {
     conn: Arc<Mutex<Connection>>,
+    dek: Option<[u8; 32]>,
 }
 
 impl VectorStore {
@@ -71,9 +73,15 @@ impl VectorStore {
             .with_context(|| format!("opening rag.db at {}", path.display()))?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
+            dek: None,
         };
         store.migrate()?;
         Ok(store)
+    }
+
+    pub fn with_dek(mut self, dek: [u8; 32]) -> Self {
+        self.dek = Some(dek);
+        self
     }
 
     pub fn open_in_memory() -> Result<Self> {
@@ -178,10 +186,11 @@ impl VectorStore {
     }
 
     pub fn set_summary(&self, document_id: &str, summary: &str) -> Result<()> {
+        let stored = maybe_encrypt(self.dek.as_ref(), summary)?;
         let conn = self.lock_conn();
         conn.execute(
             "UPDATE rag_documents SET summary = ?1 WHERE id = ?2",
-            params![summary, document_id],
+            params![stored, document_id],
         )?;
         Ok(())
     }
@@ -280,6 +289,7 @@ impl VectorStore {
     }
 
     pub fn list_documents(&self, collection: &str) -> Result<Vec<DocumentInfo>> {
+        let dek_ref = self.dek.as_ref();
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT d.id, d.collection, d.source, d.sha256, d.ingested_at,
@@ -301,7 +311,9 @@ impl VectorStore {
                 title: row.get(6)?,
                 author: row.get(7)?,
                 page_count: row.get::<_, i64>(8)? as u32,
-                summary: row.get(9)?,
+                summary: row.get::<_, Option<String>>(9)?
+                    .map(|s| maybe_decrypt(dek_ref, &s))
+                    .transpose()?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -309,6 +321,7 @@ impl VectorStore {
     }
 
     pub fn get_document(&self, id: &str) -> Result<Option<DocumentInfo>> {
+        let dek_ref = self.dek.as_ref();
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT d.id, d.collection, d.source, d.sha256, d.ingested_at,
@@ -329,7 +342,9 @@ impl VectorStore {
                 title: row.get(6)?,
                 author: row.get(7)?,
                 page_count: row.get::<_, i64>(8)? as u32,
-                summary: row.get(9)?,
+                summary: row.get::<_, Option<String>>(9)?
+                    .map(|s| maybe_decrypt(dek_ref, &s))
+                    .transpose()?,
             })
         })?;
         Ok(rows.next().transpose()?)
@@ -340,12 +355,16 @@ impl VectorStore {
         let mut stmt = conn.prepare(
             "SELECT text FROM rag_chunks WHERE document_id = ?1 ORDER BY ordinal ASC",
         )?;
-        let rows: Vec<String> = stmt
+        let raw_rows: Vec<String> = stmt
             .query_map(params![document_id], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        if rows.is_empty() {
+        if raw_rows.is_empty() {
             return Ok(None);
         }
+        let rows = raw_rows
+            .iter()
+            .map(|t| maybe_decrypt(self.dek.as_ref(), t))
+            .collect::<Result<Vec<_>>>()?;
         Ok(Some(rows.join("\n\n")))
     }
 
