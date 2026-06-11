@@ -34,11 +34,15 @@ struct ProvidersResp {
 }
 
 async fn list_providers(State(state): State<AppState>) -> Json<ProvidersResp> {
+    let identity = state.rt().identity;
     Json(ProvidersResp {
         local: true,
-        oidc: state.rt().identity.oidc.is_some(),
-        ldap: state.rt().identity.ldap.is_some(),
-        saml: state.rt().identity.saml.is_some(),
+        oidc: identity.oidc.is_some(),
+        #[cfg(feature = "ldap")]
+        ldap: identity.ldap.is_some(),
+        #[cfg(not(feature = "ldap"))]
+        ldap: false,
+        saml: identity.saml.is_some(),
     })
 }
 
@@ -170,6 +174,7 @@ struct LdapLoginReq {
     password: String,
 }
 
+#[cfg(feature = "ldap")]
 async fn ldap_login(
     State(state): State<AppState>,
     Json(req): Json<LdapLoginReq>,
@@ -241,6 +246,17 @@ async fn ldap_login(
     .await
 }
 
+#[cfg(not(feature = "ldap"))]
+async fn ldap_login(
+    State(_state): State<AppState>,
+    Json(_req): Json<LdapLoginReq>,
+) -> ApiResult<Json<TokenResp>> {
+    Err(ApiError::not_implemented(
+        "LDAP support was not compiled in; rebuild maranoded with --features ldap",
+    ))
+}
+
+#[cfg(feature = "ldap")]
 fn ldap_escape(s: &str) -> String {
     s.replace('\\', "\\5c")
         .replace('*', "\\2a")

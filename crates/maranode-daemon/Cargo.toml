@@ -10,6 +10,9 @@ repository.workspace = true
 name = "maranoded"
 path = "src/main.rs"
 
+[features]
+ldap = ["maranode-api/ldap"]
+
 [dependencies]
 maranode-common       = { workspace = true }
 maranode-audit        = { workspace = true }
