@@ -34,6 +34,9 @@ pub enum AuditEvent {
         model: ModelId,
         prompt_sha256: String,
         device: InferenceDevice,
+        /// full prompt content. only present when log_prompts is enabled
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
 
     InferenceComplete {
@@ -43,6 +46,9 @@ pub enum AuditEvent {
         tokens_out: u32,
         duration_ms: u64,
         device: InferenceDevice,
+        /// full response content. only present when log_prompts is enabled
+        #[serde(skip_serializing_if = "Option::is_none")]
+        response: Option<String>,
     },
 
     InferenceFailed {

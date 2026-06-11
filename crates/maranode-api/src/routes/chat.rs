@@ -331,6 +331,12 @@ async fn run(
     let prompt_sha256 = hex::encode(hasher.finalize());
 
     let engine_device = state.engine.device();
+    let rt = state.rt();
+    let prompt_content = if rt.log_prompts {
+        Some(serde_json::to_string(&messages).unwrap_or_default())
+    } else {
+        None
+    };
     let _ = audit_log
         .append(
             "api",
@@ -339,6 +345,7 @@ async fn run(
                 model: model_id.clone(),
                 prompt_sha256,
                 device: engine_device,
+                prompt: prompt_content,
             },
         )
         .await;
@@ -451,6 +458,11 @@ async fn run(
     state
         .stats
         .record_ok(resp.tokens_in, resp.tokens_out, duration_ms);
+    let response_content = if rt.log_prompts {
+        Some(resp.content.clone())
+    } else {
+        None
+    };
     let _ = audit_log
         .append(
             "api",
@@ -461,6 +473,7 @@ async fn run(
                 tokens_out: resp.tokens_out,
                 duration_ms,
                 device: resp.device,
+                response: response_content,
             },
         )
         .await;

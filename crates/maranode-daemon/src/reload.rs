@@ -240,6 +240,8 @@ pub fn runtime_from_config(
         system_prompt,
         identity: identity_from_config(cfg),
         air_gap,
+        log_prompts: cfg.logging.log_prompts,
+        content_log_retention_days: cfg.logging.content_log_retention_days,
     }
 }
 

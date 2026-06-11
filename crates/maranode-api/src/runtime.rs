@@ -13,6 +13,10 @@ pub struct RuntimeSettings {
     pub system_prompt: Option<String>,
     pub identity: IdentityConfig,
     pub air_gap: bool,
+    /// when true, full prompt and response text is written into the audit log
+    pub log_prompts: bool,
+    /// retention in days for content-logged entries (0 = no automatic pruning)
+    pub content_log_retention_days: u32,
 }
 
 pub type SharedRuntime = Arc<RwLock<RuntimeSettings>>;

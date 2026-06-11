@@ -1,7 +1,7 @@
 - [x] **Model memory pressure eviction** — Architecture says the daemon evicts loaded models under memory pressure. Currently models are loaded on demand but never evicted until restart.
-- [ ] **Docker image** — Roadmap says "single binary distribution (no Docker required, but Docker image also published)". No Dockerfile exists yet.
+- [x] **Docker image** — Roadmap says "single binary distribution (no Docker required, but Docker image also published)". No Dockerfile exists yet.
 - [ ] **Install script hosted at `get.maranode.com`** — The `install.sh` script exists in `scripts/` but needs to be deployed to the domain.
-- [ ] **Content logging opt-in flag** — Architecture mentions operators can enable full prompt logging with an explicit flag and retention controls. Only the hashed prompt is logged today; there is no `--log-prompts` option.
+- [x] **Content logging opt-in flag** — Architecture mentions operators can enable full prompt logging with an explicit flag and retention controls. Only the hashed prompt is logged today; there is no `--log-prompts` option.
 
 
 - [ ] **Independent security audit** — Third-party firm review. Publish results.

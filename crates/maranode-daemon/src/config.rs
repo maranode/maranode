@@ -28,22 +28,14 @@ pub struct DaemonConfig {
     pub auth: AuthConfig,
     pub rag: RagConfig,
     pub assistant: AssistantConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InferenceConfig {
-    /// max waiting requests. New requests get 503 when full.
-    /// value 0 means no limit.
     pub max_queue_depth: usize,
-    /// how many requests may run in parallel. default is 4.
-    /// on CPU, each parallel slot holds its own KV cache in RAM (~1-2 GB for a 7B model).
-    /// lower this on memory-constrained machines; raise it for GPU deployments with many users.
-    /// changing this requires a daemon restart.
     pub max_parallel: usize,
-    /// how many models to keep loaded in RAM at once.
-    /// when the limit is hit, the least recently used model is evicted.
-    /// 0 means no limit (models stay loaded until restart).
     pub max_loaded_models: usize,
 }
 
@@ -111,17 +103,12 @@ pub struct OidcConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LdapConfig {
-    /// example: ldaps://dc.example.com:636
     pub url: String,
-    /// bind DN for LDAP user search
     pub bind_dn: String,
     pub bind_pw: String,
-    /// base DN for user search
     pub base_dn: String,
-    /// LDAP login attribute, e.g. samaccountname or uid.
     #[serde(default = "default_ldap_uid")]
     pub uid_attr: String,
-    /// map LDAP group DN to role. first match wins
     #[serde(default)]
     pub group_role_map: Vec<LdapGroupRole>,
     #[serde(default = "default_viewer")]
@@ -136,16 +123,34 @@ pub struct LdapGroupRole {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlConfig {
-    /// identity provider metadata URL
     pub idp_metadata_url: String,
-    /// service provider entity ID
     pub sp_entity_id: String,
-    /// service provider signing certificate in PEM format
     pub sp_cert: Option<String>,
-    /// service provider signing key in PEM format
     pub sp_key: Option<String>,
     #[serde(default = "default_viewer")]
     pub default_role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LoggingConfig {
+    /// when true, full prompt and response content is written into the audit log.
+    /// disabled by default — only hashed prompt is logged.
+    /// requires explicit opt-in; treat the audit log as sensitive when enabled.
+    pub log_prompts: bool,
+    /// how many days of content-logged entries to retain when pruning.
+    /// only applies to entries that contain prompt/response content.
+    /// 0 means no automatic pruning.
+    pub content_log_retention_days: u32,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            log_prompts: false,
+            content_log_retention_days: 90,
+        }
+    }
 }
 
 fn default_viewer() -> String {
@@ -158,7 +163,6 @@ fn default_ldap_uid() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RagIngestPolicy {
-    /// any client can ingest. no API key required
     #[default]
     Anyone,
     AdminOnly,
@@ -168,7 +172,6 @@ pub enum RagIngestPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RagConfig {
-    /// set true to enable local RAG. default is false
     pub enabled: bool,
     pub embedding_model: String,
     pub default_collection: String,
@@ -184,8 +187,6 @@ pub struct RagConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AssistantConfig {
-    /// assistant display name, e.g. Aria, MedBot, Support Agent
-    /// used in auto prompt when system_prompt is empty
     pub name: String,
     pub system_prompt: String,
     pub system_prompt_file: Option<PathBuf>,
@@ -254,6 +255,7 @@ impl Default for DaemonConfig {
             auth: AuthConfig::default(),
             rag: RagConfig::default(),
             assistant: AssistantConfig::default(),
+            logging: LoggingConfig::default(),
         }
     }
 }
@@ -333,6 +335,9 @@ impl DaemonConfig {
         if std::env::var_os("MARANODE_RAG").is_some_and(|v| v == "1" || v == "true") {
             self.rag.enabled = true;
         }
+        if std::env::var_os("MARANODE_LOG_PROMPTS").is_some_and(|v| v == "1" || v == "true") {
+            self.logging.log_prompts = true;
+        }
         if let Ok(v) = std::env::var("MARANODE_EMBEDDING_MODEL") {
             self.rag.embedding_model = v;
         }
@@ -353,18 +358,15 @@ impl DaemonConfig {
     }
 }
 
-/// standard paths where config file is searched
 fn config_search_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
-    // XDG config dir, or `~/.config/maranode`
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         paths.push(PathBuf::from(xdg).join("maranode/config.toml"));
     } else if let Some(home) = std::env::var_os("HOME") {
         paths.push(PathBuf::from(home).join(".config/maranode/config.toml"));
     }
 
-    // system path `/etc/maranode/config.toml`
     paths.push(PathBuf::from("/etc/maranode/config.toml"));
 
     paths
