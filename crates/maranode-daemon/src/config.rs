@@ -127,6 +127,10 @@ pub struct SamlConfig {
     pub sp_entity_id: String,
     pub sp_cert: Option<String>,
     pub sp_key: Option<String>,
+    /// PEM or bare base64 DER of the IdP signing certificate.
+    /// when set, only this cert is trusted for signature verification.
+    /// if absent, the cert embedded in the assertion <ds:X509Certificate> is used (TOFU).
+    pub idp_cert: Option<String>,
     #[serde(default = "default_viewer")]
     pub default_role: String,
 }

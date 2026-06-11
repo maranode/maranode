@@ -273,6 +273,7 @@ pub fn identity_from_config(cfg: &DaemonConfig) -> IdentityConfig {
             sp_entity_id: s.sp_entity_id.clone(),
             sp_cert: s.sp_cert.clone(),
             sp_key: s.sp_key.clone(),
+            idp_cert: s.idp_cert.clone(),
             default_role: s.default_role.clone(),
         }),
     }

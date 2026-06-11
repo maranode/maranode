@@ -96,6 +96,7 @@ pub struct SamlCfg {
     pub sp_entity_id: String,
     pub sp_cert: Option<String>,
     pub sp_key: Option<String>,
+    pub idp_cert: Option<String>,
     pub default_role: String,
 }
 

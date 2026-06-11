@@ -33,6 +33,8 @@ uuid         = { workspace = true }
 bytes        = { workspace = true }
 sha2         = { workspace = true }
 hex          = { workspace = true }
+rsa          = { workspace = true }
+x509-cert    = { workspace = true }
 async-trait   = "0.1"
 argon2        = { workspace = true }
 openidconnect = { workspace = true }

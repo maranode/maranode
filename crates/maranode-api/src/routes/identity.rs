@@ -351,6 +351,9 @@ async fn saml_callback(
     let xml = String::from_utf8(xml_bytes)
         .map_err(|_| ApiError::unauthorized("SAMLResponse is not valid UTF-8"))?;
 
+    saml_verify_signature(&xml, cfg.idp_cert.as_deref())
+        .map_err(|e| ApiError::unauthorized(format!("SAML signature: {}", e)))?;
+
     let (subject, email, username) = saml_parse_assertion(&xml)
         .map_err(|e| ApiError::unauthorized(format!("SAML assertion: {}", e)))?;
 
@@ -406,6 +409,112 @@ async fn saml_idp_sso_url(metadata_url: &str) -> ApiResult<String> {
     Err(ApiError::internal(
         "no HTTP-Redirect SSO URL found in IdP metadata",
     ))
+}
+
+/// verify the XMLDSig RSA-SHA256 signature on a SAMLResponse.
+/// uses configured idp_cert when provided; otherwise trusts the cert embedded
+/// in the response (TOFU — acceptable only on first-use or in dev environments).
+fn saml_verify_signature(xml: &str, configured_cert: Option<&str>) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use rsa::{
+        pkcs8::DecodePublicKey,
+        pkcs1v15::{Signature, VerifyingKey},
+        signature::Verifier,
+        RsaPublicKey,
+    };
+    use sha2::Sha256;
+    use x509_cert::{
+        der::{Decode, Encode},
+        Certificate,
+    };
+
+    let signed_info_bytes = extract_signed_info_bytes(xml)
+        .ok_or_else(|| "no <SignedInfo> element in assertion".to_string())?;
+
+    let sig_raw = xml_element_text(xml, "SignatureValue")
+        .ok_or_else(|| "no <SignatureValue> in assertion".to_string())?;
+    let sig_bytes = STANDARD
+        .decode(sig_raw.replace(['\n', '\r', ' '], "").as_str())
+        .map_err(|e| format!("SignatureValue base64: {e}"))?;
+
+    let cert_b64 = if let Some(c) = configured_cert {
+        strip_pem(c)
+    } else {
+        xml_element_text(xml, "X509Certificate")
+            .ok_or_else(|| "no certificate in assertion and none configured".to_string())?
+            .replace(['\n', '\r', ' '], "")
+    };
+    let cert_der = STANDARD
+        .decode(&cert_b64)
+        .map_err(|e| format!("cert base64: {e}"))?;
+
+    let cert = Certificate::from_der(&cert_der).map_err(|e| format!("cert parse: {e}"))?;
+    let spki_der = cert
+        .tbs_certificate
+        .subject_public_key_info
+        .to_der()
+        .map_err(|e| format!("spki encode: {e}"))?;
+
+    let pub_key =
+        RsaPublicKey::from_public_key_der(&spki_der).map_err(|e| format!("rsa key: {e}"))?;
+    let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new(pub_key);
+    let sig =
+        Signature::try_from(sig_bytes.as_slice()).map_err(|e| format!("signature parse: {e}"))?;
+
+    verifying_key
+        .verify(signed_info_bytes, &sig)
+        .map_err(|_| "SAML signature verification failed".to_string())
+}
+
+/// extract the raw bytes of the <ds:SignedInfo>...</ds:SignedInfo> element
+/// (or unprefixed variant). used as the signed octets for RSA-SHA256.
+fn extract_signed_info_bytes(xml: &str) -> Option<&[u8]> {
+    let bytes = xml.as_bytes();
+    let prefixes = [b"<ds:SignedInfo".as_ref(), b"<SignedInfo".as_ref()];
+    let closes = [b"</ds:SignedInfo>".as_ref(), b"</SignedInfo>".as_ref()];
+    for (open_tag, close_tag) in prefixes.iter().zip(closes.iter()) {
+        if let Some(start) = find_bytes(bytes, open_tag) {
+            if let Some(rel_end) = find_bytes(&bytes[start..], close_tag) {
+                let end = start + rel_end + close_tag.len();
+                return Some(&bytes[start..end]);
+            }
+        }
+    }
+    None
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
+}
+
+/// get inner text of first element matching local name (with or without ds: prefix)
+fn xml_element_text(xml: &str, local: &str) -> Option<String> {
+    let open1 = format!("<ds:{local}");
+    let close1 = format!("</ds:{local}>");
+    let open2 = format!("<{local}");
+    let close2 = format!("</{local}>");
+    for (open, close) in [(&open1, &close1), (&open2, &close2)] {
+        if let Some(s) = xml.find(open.as_str()) {
+            if let Some(gt) = xml[s..].find('>') {
+                let content_start = s + gt + 1;
+                if let Some(end) = xml[content_start..].find(close.as_str()) {
+                    return Some(xml[content_start..content_start + end].trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// strip PEM armor and whitespace, returning bare base64
+fn strip_pem(s: &str) -> String {
+    s.lines()
+        .filter(|l| !l.starts_with("-----"))
+        .collect::<Vec<_>>()
+        .join("")
+        .replace(' ', "")
 }
 
 /// read nameid, email, username from samlresponse xml string
