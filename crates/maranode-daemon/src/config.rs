@@ -41,6 +41,10 @@ pub struct InferenceConfig {
     /// lower this on memory-constrained machines; raise it for GPU deployments with many users.
     /// changing this requires a daemon restart.
     pub max_parallel: usize,
+    /// how many models to keep loaded in RAM at once.
+    /// when the limit is hit, the least recently used model is evicted.
+    /// 0 means no limit (models stay loaded until restart).
+    pub max_loaded_models: usize,
 }
 
 impl Default for InferenceConfig {
@@ -48,6 +52,7 @@ impl Default for InferenceConfig {
         Self {
             max_queue_depth: 32,
             max_parallel: 4,
+            max_loaded_models: 2,
         }
     }
 }

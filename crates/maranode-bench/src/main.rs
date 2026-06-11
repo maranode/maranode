@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
     let pref = parse_device(&args.device)?;
 
     info!("Initialising engine (device={})", args.device);
-    let engine = LlamaCppEngine::new(pref).context("initialising LlamaCppEngine")?;
+    let engine = LlamaCppEngine::new(pref, 0).context("initialising LlamaCppEngine")?;
 
     let device_label = engine.device().to_string();
 

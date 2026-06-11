@@ -257,7 +257,7 @@ async fn main() -> Result<()> {
     };
 
     let raw_engine: Arc<dyn InferenceEngine> =
-        Arc::new(LlamaCppEngine::new(device_pref).context("initialising llama.cpp engine")?);
+        Arc::new(LlamaCppEngine::new(device_pref, cfg.inference.max_loaded_models).context("initialising llama.cpp engine")?);
 
     let max_queue = cfg.inference.max_queue_depth;
     let max_parallel = cfg.inference.max_parallel;

@@ -10,6 +10,11 @@ use anyhow::{Context, Result};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
 
+struct ModelCache {
+    by_path: HashMap<String, (Arc<LlamaModel>, Instant)>,
+    id_to_path: HashMap<String, String>,
+}
+
 use maranode_common::models::{ChatMessage, ChatRole, InferenceDevice};
 use llama_cpp_2::{
     context::params::{LlamaContextParams, LlamaPoolingType},
@@ -39,9 +44,10 @@ pub enum DevicePreference {
 
 pub struct LlamaCppEngine {
     backend: Arc<LlamaBackend>,
-    models: Arc<Mutex<HashMap<String, Arc<LlamaModel>>>>,
+    cache: Arc<Mutex<ModelCache>>,
     device: InferenceDevice,
     n_gpu_layers: u32,
+    max_loaded_models: usize,
 }
 
 impl std::fmt::Debug for LlamaCppEngine {
@@ -49,6 +55,7 @@ impl std::fmt::Debug for LlamaCppEngine {
         f.debug_struct("LlamaCppEngine")
             .field("device", &self.device)
             .field("n_gpu_layers", &self.n_gpu_layers)
+            .field("max_loaded_models", &self.max_loaded_models)
             .finish_non_exhaustive()
     }
 }
@@ -68,7 +75,7 @@ fn shared_backend() -> Result<Arc<LlamaBackend>> {
 }
 
 impl LlamaCppEngine {
-    pub fn new(pref: DevicePreference) -> Result<Self> {
+    pub fn new(pref: DevicePreference, max_loaded_models: usize) -> Result<Self> {
         let backend = shared_backend()?;
 
         let (device, n_gpu_layers) = resolve_device(pref)?;
@@ -84,15 +91,19 @@ impl LlamaCppEngine {
         }
 
         info!(
-            "llama.cpp backend initialised (device={}, n_gpu_layers={})",
-            device, n_gpu_layers
+            "llama.cpp backend initialised (device={}, n_gpu_layers={}, max_loaded_models={})",
+            device, n_gpu_layers, max_loaded_models
         );
 
         Ok(Self {
             backend,
-            models: Arc::new(Mutex::new(HashMap::new())),
+            cache: Arc::new(Mutex::new(ModelCache {
+                by_path: HashMap::new(),
+                id_to_path: HashMap::new(),
+            })),
             device,
             n_gpu_layers,
+            max_loaded_models,
         })
     }
 
@@ -100,15 +111,16 @@ impl LlamaCppEngine {
         let key = path.to_string_lossy().into_owned();
 
         {
-            let cache = self.models.lock().await;
-            if let Some(m) = cache.get(&key) {
-                debug!("Model cache hit: {}", key);
-                return Ok(Arc::clone(m));
+            let mut cache = self.cache.lock().await;
+            if let Some(entry) = cache.by_path.get_mut(&key) {
+                entry.1 = Instant::now();
+                debug!("model cache hit: {}", key);
+                return Ok(Arc::clone(&entry.0));
             }
         }
 
         info!(
-            "Loading GGUF model: {} (n_gpu_layers={})",
+            "loading GGUF model: {} (n_gpu_layers={})",
             key, self.n_gpu_layers
         );
         let backend = Arc::clone(&self.backend);
@@ -124,12 +136,31 @@ impl LlamaCppEngine {
         .context("thread join for model load")??;
 
         let model = Arc::new(model);
-        self.models
-            .lock()
-            .await
-            .insert(key.clone(), Arc::clone(&model));
-        info!("Model loaded and cached: {}", key);
+
+        let mut cache = self.cache.lock().await;
+        cache.by_path.insert(key.clone(), (Arc::clone(&model), Instant::now()));
+
+        if self.max_loaded_models > 0 && cache.by_path.len() > self.max_loaded_models {
+            evict_lru(&mut cache, &key);
+        }
+
+        info!("model loaded and cached: {}", key);
         Ok(model)
+    }
+}
+
+fn evict_lru(cache: &mut ModelCache, just_loaded: &str) {
+    let victim = cache
+        .by_path
+        .iter()
+        .filter(|(k, _)| k.as_str() != just_loaded)
+        .min_by_key(|(_, (_, t))| *t)
+        .map(|(k, _)| k.clone());
+
+    if let Some(k) = victim {
+        cache.id_to_path.retain(|_, v| v != &k);
+        cache.by_path.remove(&k);
+        info!("evicted model from cache (LRU): {}", k);
     }
 }
 
@@ -370,16 +401,21 @@ impl InferenceEngine for LlamaCppEngine {
         self.device
     }
 
-    async fn load_model(&self, _model_id: &str, path: &Path) -> Result<()> {
+    async fn load_model(&self, model_id: &str, path: &Path) -> Result<()> {
         self.get_or_load(path).await?;
+        let key = path.to_string_lossy().into_owned();
+        self.cache.lock().await.id_to_path.insert(model_id.to_string(), key);
         Ok(())
     }
 
     async fn unload_model(&self, model_id: &str) -> Result<()> {
-        warn!(
-            "unload_model('{}') is a no-op: path reverse-map not yet implemented",
-            model_id
-        );
+        let mut cache = self.cache.lock().await;
+        if let Some(path_key) = cache.id_to_path.remove(model_id) {
+            cache.by_path.remove(&path_key);
+            info!("unloaded model '{}' ({})", model_id, path_key);
+        } else {
+            warn!("unload_model('{}') — model not in cache", model_id);
+        }
         Ok(())
     }
 }
