@@ -3,7 +3,7 @@
 ## Phase 2 — Commercial Foundation (remaining)
 
 - [x] **Retention policy enforcement on schedule** — `prune_log` exists and is callable via API/CLI/UI, but there is no automated scheduler that runs it on a cron-like basis. Retention should be enforceable as a policy, not just a manual operation.
-- [ ] **Signed evidence bundles** — The ZIP bundle contains integrity data but the bundle itself is not cryptographically signed. Phase 2.3 roadmap says "cryptographically signed, timestamped." Needs cosign or a PGP/minisign step.
+- [x] **Signed evidence bundles** — The ZIP bundle contains integrity data but the bundle itself is not cryptographically signed. Phase 2.3 roadmap says "cryptographically signed, timestamped." Needs cosign or a PGP/minisign step.
 
 - [ ] **Multi-node deployment** — Leader election, shared model cache across nodes. Not started. Requires significant distributed systems work.
 - [ ] **Backup and restore for audit logs** — No `maranode audit backup` / `restore` command. The files are plain JSON Lines so `rsync` works, but there is no documented or automated backup procedure.

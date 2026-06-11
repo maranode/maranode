@@ -14,6 +14,7 @@ use maranode_audit::bundle::create_bundle;
 use maranode_audit::export::{export_gdpr, export_hipaa, export_iso27001, export_soc2, ExportFilter};
 use maranode_audit::log::{default_key_path, default_log_path, AuditLog};
 use maranode_audit::retention::prune_log;
+use maranode_audit::sign;
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -25,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/v1/audit/bundle", get(download_bundle))
         .route("/v1/audit/bundle/:workspace", get(download_workspace_bundle))
         .route("/v1/audit/prune", post(do_prune))
+        .route("/v1/audit/signing-key", get(get_signing_key))
 }
 
 fn require_admin_hdr(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
@@ -208,7 +210,8 @@ async fn build_bundle_response(state: &AppState, workspace: Option<&str>) -> Api
         (log, key, tmp, "audit_bundle.zip".to_string())
     };
 
-    create_bundle(&log_path, &key_path, &tmp_name, workspace)
+    let signing_key = sign::load_or_create(&state.data_dir).ok();
+    create_bundle(&log_path, &key_path, &tmp_name, workspace, signing_key.as_ref())
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let bytes = std::fs::read(&tmp_name).map_err(|e| ApiError::internal(e.to_string()))?;
@@ -250,4 +253,23 @@ async fn do_prune(
         prune_log(&log_path, req.retain_days).map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(PruneResp { pruned }))
+}
+
+#[derive(Serialize)]
+struct SigningKeyResp {
+    algorithm: &'static str,
+    public_key_hex: String,
+}
+
+async fn get_signing_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<SigningKeyResp>> {
+    require_admin_hdr(&state, &headers)?;
+    let key = sign::load_or_create(&state.data_dir)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(SigningKeyResp {
+        algorithm: "ed25519",
+        public_key_hex: hex::encode(key.verifying_key().to_bytes()),
+    }))
 }
