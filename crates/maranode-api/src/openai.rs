@@ -112,6 +112,8 @@ pub struct ChunkDelta {
 pub struct ModelListResponse {
     pub object: &'static str,
     pub data: Vec<ModelObject>,
+    pub total: usize,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Serialize)]

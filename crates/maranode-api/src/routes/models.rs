@@ -1,12 +1,12 @@
 //! /v1/models routes: list, get one, delete
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     routing::{delete, get},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use maranode_common::events::AuditEvent;
 use maranode_common::models::{ModelId, ModelType};
@@ -22,27 +22,54 @@ pub fn router() -> Router<AppState> {
         .route("/v1/models/:model_id", delete(remove_model))
 }
 
-async fn list_models(State(state): State<AppState>) -> ApiResult<Json<ModelListResponse>> {
+#[derive(Debug, Deserialize)]
+struct PageQuery {
+    #[serde(default = "default_page_limit")]
+    limit: usize,
+    #[serde(default)]
+    offset: usize,
+}
+
+fn default_page_limit() -> usize {
+    100
+}
+
+async fn list_models(
+    State(state): State<AppState>,
+    Query(pq): Query<PageQuery>,
+) -> ApiResult<Json<ModelListResponse>> {
     let manifests = state
         .store
         .list()
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let data = manifests
+    let all: Vec<_> = manifests
         .into_iter()
         .filter(|m| m.model_type == ModelType::Llm)
+        .collect();
+
+    let total = all.len();
+    let limit = pq.limit.min(500).max(1);
+    let data = all
+        .into_iter()
+        .skip(pq.offset)
+        .take(limit)
         .map(|m| ModelObject {
             id: m.model_id.to_string(),
             object: "model",
             created: m.imported_at.timestamp(),
             owned_by: "maranode".into(),
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let has_more = pq.offset + data.len() < total;
 
     Ok(Json(ModelListResponse {
         object: "list",
         data,
+        total,
+        has_more,
     }))
 }
 
@@ -59,15 +86,29 @@ struct ModelDetail {
     imported_at: String,
 }
 
-async fn list_models_details(State(state): State<AppState>) -> ApiResult<Json<Vec<ModelDetail>>> {
+#[derive(Debug, Serialize)]
+struct PagedDetails {
+    data: Vec<ModelDetail>,
+    total: usize,
+    has_more: bool,
+}
+
+async fn list_models_details(
+    State(state): State<AppState>,
+    Query(pq): Query<PageQuery>,
+) -> ApiResult<Json<PagedDetails>> {
     let manifests = state
         .store
         .list()
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let details = manifests
+    let total = manifests.len();
+    let limit = pq.limit.min(500).max(1);
+    let data = manifests
         .into_iter()
+        .skip(pq.offset)
+        .take(limit)
         .map(|m| ModelDetail {
             id: m.model_id.to_string(),
             name: m.model_id.name.clone(),
@@ -82,9 +123,10 @@ async fn list_models_details(State(state): State<AppState>) -> ApiResult<Json<Ve
             quantization: m.quantization.clone(),
             imported_at: m.imported_at.to_rfc3339(),
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    Ok(Json(details))
+    let has_more = pq.offset + data.len() < total;
+    Ok(Json(PagedDetails { data, total, has_more }))
 }
 
 fn require_admin(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
