@@ -8,12 +8,25 @@ use uuid::Uuid;
 
 use maranode_common::workspace::Workspace;
 
+use crate::kek as kek_mod;
+
 pub struct WorkspaceDb {
     conn: Connection,
+    kek: Option<[u8; 32]>,
 }
 
 impl WorkspaceDb {
     pub fn open(path: &Path) -> Result<Self> {
+        let conn = Self::open_conn(path)?;
+        Ok(Self { conn, kek: None })
+    }
+
+    pub fn open_with_kek(path: &Path, kek: [u8; 32]) -> Result<Self> {
+        let conn = Self::open_conn(path)?;
+        Ok(Self { conn, kek: Some(kek) })
+    }
+
+    fn open_conn(path: &Path) -> Result<Connection> {
         let conn = Connection::open(path)
             .with_context(|| format!("opening workspace db at {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
@@ -33,7 +46,7 @@ impl WorkspaceDb {
             "ALTER TABLE workspaces ADD COLUMN max_memory_bytes INTEGER;",
         );
         let _ = conn.execute_batch(include_str!("sql/migrate_add_dek.sql"));
-        Ok(Self { conn })
+        Ok(conn)
     }
 
     pub fn list(&self) -> Result<Vec<Workspace>> {
@@ -117,7 +130,11 @@ impl WorkspaceDb {
     }
 
     pub fn create(&self, ws: &Workspace) -> Result<()> {
-        let dek = ws.dek.clone().unwrap_or_else(generate_dek);
+        let raw_dek = ws.dek.clone().unwrap_or_else(generate_dek);
+        let dek = match &self.kek {
+            Some(kek) => kek_mod::wrap_dek(kek, &raw_dek)?,
+            None => raw_dek,
+        };
         self.conn.execute(
             "INSERT INTO workspaces
                 (id, slug, name, api_key_hash, model_allowlist, rate_limit_rpm, system_prompt,
@@ -178,7 +195,7 @@ impl WorkspaceDb {
 
     /// returns the raw 32-byte DEK for the workspace, or None if it was destroyed.
     pub fn get_dek_bytes(&self, slug: &str) -> Result<Option<[u8; 32]>> {
-        let hex: Option<String> = self.conn
+        let stored: Option<String> = self.conn
             .query_row(
                 "SELECT dek FROM workspaces WHERE slug = ?1",
                 params![slug],
@@ -188,16 +205,31 @@ impl WorkspaceDb {
             .context("reading dek")?
             .flatten();
 
-        match hex {
+        match stored {
             None => Ok(None),
-            Some(h) => {
-                let bytes = hex::decode(&h).context("decoding dek hex")?;
+            Some(s) => {
+                let hex = if kek_mod::is_wrapped(&s) {
+                    match &self.kek {
+                        Some(kek) => kek_mod::unwrap_dek(kek, &s)?,
+                        None => anyhow::bail!("dek is wrapped but no KEK is loaded"),
+                    }
+                } else {
+                    s
+                };
+                let bytes = hex::decode(&hex).context("decoding dek hex")?;
                 let arr: [u8; 32] = bytes
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("dek must be exactly 32 bytes"))?;
                 Ok(Some(arr))
             }
         }
+    }
+
+    /// re-wrap all workspace DEKs from old_kek to new_kek.
+    pub fn rotate_kek(&mut self, old_kek: &[u8; 32], new_kek: [u8; 32]) -> Result<usize> {
+        let rotated = kek_mod::rotate_all(&self.conn, old_kek, &new_kek)?;
+        self.kek = Some(new_kek);
+        Ok(rotated)
     }
 
     /// set the DEK column to NULL, making all encrypted data permanently unreadable.

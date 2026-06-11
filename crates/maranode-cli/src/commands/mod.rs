@@ -8,3 +8,4 @@ pub mod serve;
 pub mod status;
 pub mod users;
 pub mod verify;
+pub mod workspace;

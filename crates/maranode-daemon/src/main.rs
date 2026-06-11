@@ -26,7 +26,7 @@ use maranode_inference::engine::InferenceEngine;
 use maranode_inference::{DevicePreference, InferenceQueue, LlamaCppEngine};
 use maranode_isolation::{IsolationConfig, Isolator, WhitelistEntry};
 use maranode_rag::RagEngine;
-use maranode_store::{maybe_bootstrap, BootstrapOptions, ModelStore, UserDb, WorkspaceDb};
+use maranode_store::{kek, maybe_bootstrap, BootstrapOptions, ModelStore, UserDb, WorkspaceDb};
 
 use crate::config::DaemonConfig;
 use crate::reload::{runtime_from_config, ReloadServices, StartupPins, StartupSnapshot};
@@ -269,6 +269,27 @@ async fn main() -> Result<()> {
         max_parallel, max_queue,
     );
 
+    let master_key = kek::load_or_create(&kek::default_kek_path(&cfg.data_dir))
+        .context("loading master KEK")?;
+    info!("Master KEK loaded ({})", kek::default_kek_path(&cfg.data_dir).display());
+
+    let ws_db_path = cfg.data_dir.join("workspaces.db");
+    let workspace_db = WorkspaceDb::open_with_kek(&ws_db_path, master_key)
+        .context("opening workspace database")?;
+
+    let workspaces = workspace_db.list().context("listing workspaces")?;
+    let mut workspace_audits = HashMap::new();
+    for ws in &workspaces {
+        let ws_data = cfg.data_dir.join("workspaces").join(&ws.slug);
+        std::fs::create_dir_all(&ws_data)?;
+        let ws_audit = AuditLog::open(
+            &maranode_audit::log::default_log_path(&ws_data),
+            &maranode_audit::log::default_key_path(&ws_data),
+        )?;
+        workspace_audits.insert(ws.slug.clone(), ws_audit);
+    }
+    info!("Workspace store ready ({} workspace(s))", workspaces.len());
+
     let rag = if cfg.rag.enabled {
         let embed_model = ModelId::parse(&cfg.rag.embedding_model).ok_or_else(|| {
             anyhow::anyhow!(
@@ -291,10 +312,7 @@ async fn main() -> Result<()> {
             store.clone(),
             embed_model,
         ));
-        let rag_dek = workspace_db
-            .get_dek_bytes("default")
-            .ok()
-            .flatten();
+        let rag_dek = workspace_db.get_dek_bytes("default").ok().flatten();
         let rag_engine = match rag_dek {
             Some(dek) => {
                 info!("RAG store encryption: active (default workspace DEK)");
@@ -332,22 +350,6 @@ async fn main() -> Result<()> {
         ),
         None => info!("No system prompt configured (assistant.name / system_prompt not set)"),
     }
-
-    let ws_db_path = cfg.data_dir.join("workspaces.db");
-    let workspace_db = WorkspaceDb::open(&ws_db_path).context("opening workspace database")?;
-
-    let workspaces = workspace_db.list().context("listing workspaces")?;
-    let mut workspace_audits = HashMap::new();
-    for ws in &workspaces {
-        let ws_data = cfg.data_dir.join("workspaces").join(&ws.slug);
-        std::fs::create_dir_all(&ws_data)?;
-        let ws_audit = AuditLog::open(
-            &maranode_audit::log::default_log_path(&ws_data),
-            &maranode_audit::log::default_key_path(&ws_data),
-        )?;
-        workspace_audits.insert(ws.slug.clone(), ws_audit);
-    }
-    info!("Workspace store ready ({} workspace(s))", workspaces.len());
 
     let user_db_path = cfg.data_dir.join("users.db");
     let user_db = UserDb::open(&user_db_path).context("opening user database")?;

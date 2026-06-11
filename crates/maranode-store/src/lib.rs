@@ -5,6 +5,7 @@ pub mod bootstrap;
 pub mod db;
 pub mod defaults;
 pub mod download;
+pub mod kek;
 pub mod store;
 pub mod user_db;
 pub mod workspace_db;

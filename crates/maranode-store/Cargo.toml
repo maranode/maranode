@@ -24,3 +24,4 @@ reqwest       = { version = "0.12", default-features = false, features = ["rustl
 futures-util  = "0.3"
 argon2        = { workspace = true }
 rand          = { workspace = true }
+aes-gcm       = { workspace = true }

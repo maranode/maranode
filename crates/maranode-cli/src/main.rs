@@ -77,6 +77,11 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         daemon_args: Vec<String>,
     },
+    /// manage workspaces (encryption, shredding)
+    Workspace {
+        #[command(subcommand)]
+        action: commands::workspace::WorkspaceCommand,
+    },
 }
 
 #[tokio::main]
@@ -134,6 +139,9 @@ async fn run() -> Result<()> {
                     commands::admin::reload_config(&cli.host, key.as_deref()).await?;
                 }
             }
+        }
+        Commands::Workspace { action } => {
+            commands::workspace::run(action, &data_dir)?;
         }
     }
 
