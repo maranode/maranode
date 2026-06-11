@@ -15,6 +15,7 @@ maranode-common       = { workspace = true }
 maranode-audit        = { workspace = true }
 maranode-attestation  = { workspace = true }
 maranode-store        = { workspace = true }
+maranode-rag          = { workspace = true }
 
 tokio        = { workspace = true }
 clap         = { workspace = true }

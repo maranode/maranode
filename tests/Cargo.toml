@@ -38,6 +38,10 @@ path = "integration/rag_test.rs"
 name = "shred"
 path = "integration/shred_test.rs"
 
+[[test]]
+name = "drift"
+path = "integration/drift_test.rs"
+
 # E2E tests
 [[test]]
 name = "repro_ci"

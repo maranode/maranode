@@ -6,8 +6,14 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
+use sha2::{Digest, Sha256};
+
 use crate::crypt::{maybe_decrypt, maybe_encrypt};
 use crate::math::{blob_to_vec, dot, vec_to_blob};
+
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(data))
+}
 
 #[derive(Debug, Clone)]
 pub struct CollectionInfo {
@@ -33,6 +39,10 @@ pub struct DocumentInfo {
 }
 
 pub(crate) struct ScoredChunk {
+    pub chunk_id: String,
+    pub doc_id: String,
+    pub doc_sha256: String,
+    pub content_hash: String,
     pub source: String,
     pub ordinal: usize,
     pub text: String,
@@ -48,6 +58,8 @@ pub struct ChunkRow {
     pub embedding: Vec<f32>,
     pub page_number: u32,
     pub section: Option<String>,
+    /// SHA-256 of the chunk text (computed at ingest; checked on tamper-detect)
+    pub content_hash: String,
 }
 
 #[derive(Clone)]
@@ -88,6 +100,7 @@ impl VectorStore {
         let conn = Connection::open_in_memory()?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
+            dek: None,
         };
         store.migrate()?;
         Ok(store)
@@ -105,6 +118,7 @@ impl VectorStore {
             "ALTER TABLE rag_documents ADD COLUMN summary TEXT",
             "ALTER TABLE rag_chunks ADD COLUMN page_number INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE rag_chunks ADD COLUMN section TEXT",
+            "ALTER TABLE rag_chunks ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
         ] {
             let _ = conn.execute_batch(sql); // ignore errors (column already exists)
         }
@@ -165,24 +179,42 @@ impl VectorStore {
         )?;
 
         for (ordinal, chunk) in chunks.iter().enumerate() {
+            let encrypted_text = maybe_encrypt(self.dek.as_ref(), &chunk.text)?;
             tx.execute(
-                "INSERT INTO rag_chunks (id, document_id, collection, ordinal, text, embedding, page_number, section)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                "INSERT INTO rag_chunks (id, document_id, collection, ordinal, text, embedding, page_number, section, content_hash)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     Uuid::new_v4().to_string(),
                     doc_id,
                     collection,
                     ordinal as i64,
-                    chunk.text,
+                    encrypted_text,
                     vec_to_blob(&chunk.embedding),
                     chunk.page_number as i64,
                     chunk.section,
+                    chunk.content_hash,
                 ],
             )?;
         }
 
         tx.commit()?;
         Ok(doc_id)
+    }
+
+    /// re-hash the stored chunk text and compare to the stored content_hash.
+    /// returns (chunk_id, stored_hash, computed_hash, matches)
+    pub fn verify_chunk_hash(&self, chunk_id: &str) -> Result<(String, String, bool)> {
+        let conn = self.lock_conn();
+        let dek_ref = self.dek.as_ref();
+        let (raw_text, stored_hash): (String, String) = conn.query_row(
+            "SELECT text, content_hash FROM rag_chunks WHERE id = ?1",
+            params![chunk_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let text = maybe_decrypt(dek_ref, &raw_text).unwrap_or(raw_text);
+        let computed = sha256_hex(text.as_bytes());
+        let matches = computed == stored_hash;
+        Ok((stored_hash, computed, matches))
     }
 
     pub fn set_summary(&self, document_id: &str, summary: &str) -> Result<()> {
@@ -203,9 +235,10 @@ impl VectorStore {
         min_score: f32,
     ) -> Result<Vec<ScoredChunk>> {
         let conn = self.lock_conn();
+        let dek_ref = self.dek.as_ref();
         let mut stmt = conn.prepare(
-            "SELECT d.source, c.ordinal, c.text, c.embedding, c.page_number, c.section,
-                    d.title, d.author
+            "SELECT c.id, d.id, d.sha256, c.content_hash, d.source, c.ordinal, c.text,
+                    c.embedding, c.page_number, c.section, d.title, d.author
              FROM rag_chunks c
              JOIN rag_documents d ON d.id = c.document_id
              WHERE c.collection = ?1",
@@ -214,19 +247,26 @@ impl VectorStore {
         let rows = stmt.query_map(params![collection], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
+                row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Vec<u8>>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
             ))
         })?;
 
         let mut scored: Vec<ScoredChunk> = Vec::new();
         for row in rows {
-            let (source, ordinal, text, blob, page_number, section, title, author) = row?;
+            let (chunk_id, doc_id, doc_sha256, content_hash, source, ordinal, raw_text,
+                 blob, page_number, section, title, author) = row?;
+            let text = maybe_decrypt(dek_ref, &raw_text)
+                .unwrap_or(raw_text);
             let emb = blob_to_vec(&blob)?;
             if emb.len() != query.len() {
                 continue;
@@ -234,6 +274,10 @@ impl VectorStore {
             let score = dot(query, &emb);
             if score >= min_score {
                 scored.push(ScoredChunk {
+                    chunk_id,
+                    doc_id,
+                    doc_sha256,
+                    content_hash,
                     source,
                     ordinal: ordinal as usize,
                     text,

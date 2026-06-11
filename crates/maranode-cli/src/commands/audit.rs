@@ -99,6 +99,12 @@ pub enum AuditCommand {
         record_id: String,
     },
 
+    /// verify RAG source hashes from a stored receipt against the live RAG store
+    VerifySources {
+        /// request_id of the inference whose sources to verify
+        record_id: String,
+    },
+
     /// export the deletion certificate for a shredded workspace
     ExportCert {
         /// workspace slug (e.g. "default")
@@ -107,6 +113,21 @@ pub enum AuditCommand {
         /// output file path. default: deletion_cert_<workspace>.txt
         #[arg(long, short)]
         output: Option<PathBuf>,
+    },
+
+    /// show isolation probe timeline from the audit log
+    IsolationReport {
+        /// start time in RFC 3339, e.g. 2024-01-01T00:00:00Z
+        #[arg(long)]
+        from: Option<String>,
+
+        /// end time in RFC 3339
+        #[arg(long)]
+        to: Option<String>,
+
+        /// only show events where isolation was broken
+        #[arg(long)]
+        drift_only: bool,
     },
 }
 
@@ -337,6 +358,18 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
         AuditCommand::ExportCert { workspace, output } => {
             export_deletion_cert(&log_path, &workspace, output.as_deref())?;
         }
+
+        AuditCommand::VerifySources { record_id } => {
+            verify_sources(&log_path, &record_id, data_dir)?;
+        }
+
+        AuditCommand::IsolationReport {
+            from,
+            to,
+            drift_only,
+        } => {
+            isolation_report(&log_path, from.as_deref(), to.as_deref(), drift_only)?;
+        }
     }
 
     Ok(())
@@ -468,6 +501,99 @@ fn restore_audit(data_dir: &Path, src: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
+fn verify_sources(log_path: &Path, record_id: &str, data_dir: &Path) -> Result<()> {
+    use maranode_common::receipt::SourceRef;
+    use maranode_rag::VectorStore;
+
+    if !log_path.exists() {
+        anyhow::bail!("no audit log found at {}", log_path.display());
+    }
+
+    let content = std::fs::read_to_string(log_path)?;
+    let receipt = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+        .find_map(|e| {
+            if let AuditEvent::InferenceReceipt { receipt } = e.event {
+                if receipt.request_id == record_id {
+                    return Some(receipt);
+                }
+            }
+            None
+        });
+
+    let receipt = receipt.ok_or_else(|| {
+        anyhow::anyhow!("no receipt found for request id {}", record_id)
+    })?;
+
+    if receipt.sources.is_empty() {
+        println!(
+            "{} Receipt for {} has no RAG sources (not grounded).",
+            "·".dimmed(),
+            record_id.cyan(),
+        );
+        return Ok(());
+    }
+
+    let store = VectorStore::open(data_dir).map_err(|e| {
+        anyhow::anyhow!("cannot open RAG store at {}: {}", data_dir.display(), e)
+    })?;
+
+    let mut all_ok = true;
+    for src in &receipt.sources {
+        match store.verify_chunk_hash(&src.chunk_id) {
+            Ok((stored_hash, computed, matches)) => {
+                if matches {
+                    println!(
+                        "  {} chunk {} ({}) — hash OK",
+                        "✓".green().bold(),
+                        src.chunk_id[..8].cyan(),
+                        src.source,
+                    );
+                } else {
+                    eprintln!(
+                        "  {} chunk {} ({}) — TAMPERED",
+                        "✗".red().bold(),
+                        src.chunk_id[..8].cyan(),
+                        src.source,
+                    );
+                    eprintln!("    receipt:  {}", src.chunk_hash.yellow());
+                    eprintln!("    stored:   {}", stored_hash.yellow());
+                    eprintln!("    computed: {}", computed.red());
+                    all_ok = false;
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "  {} chunk {} — NOT FOUND ({})",
+                    "?".yellow().bold(),
+                    src.chunk_id[..8].cyan(),
+                    e,
+                );
+                all_ok = false;
+            }
+        }
+    }
+
+    if all_ok {
+        println!(
+            "\n{} All {} source(s) verified — no tampering detected.",
+            "✓".green().bold(),
+            receipt.sources.len(),
+        );
+    } else {
+        eprintln!(
+            "\n{} Source verification {}. Some chunks may have been altered since inference.",
+            "✗".red().bold(),
+            "FAILED".red().bold(),
+        );
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
 fn export_deletion_cert(log_path: &Path, slug: &str, output: Option<&Path>) -> Result<()> {
     if !log_path.exists() {
         anyhow::bail!("no audit log found at {}", log_path.display());
@@ -524,6 +650,131 @@ fn export_deletion_cert(log_path: &Path, slug: &str, output: Option<&Path>) -> R
         "✓".green().bold(),
         dest.display(),
     );
+
+    Ok(())
+}
+
+fn isolation_report(
+    log_path: &Path,
+    from: Option<&str>,
+    to: Option<&str>,
+    drift_only: bool,
+) -> Result<()> {
+    use maranode_common::events::ProbeResult;
+
+    if !log_path.exists() {
+        println!("{} No audit log found.", "·".dimmed());
+        return Ok(());
+    }
+
+    let from_dt = from
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let to_dt = to
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+
+    let content = std::fs::read_to_string(log_path)?;
+
+    let probes: Vec<(AuditEntry, bool, Vec<ProbeResult>, String)> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+        .filter_map(|e| {
+            if let AuditEvent::IsolationProbe {
+                isolated,
+                ref probe_results,
+                ref iptables_hash,
+            } = e.event
+            {
+                Some((e.clone(), isolated, probe_results.clone(), iptables_hash.clone()))
+            } else {
+                None
+            }
+        })
+        .filter(|(e, ..)| {
+            if let Some(f) = from_dt {
+                if e.ts < f {
+                    return false;
+                }
+            }
+            if let Some(t) = to_dt {
+                if e.ts > t {
+                    return false;
+                }
+            }
+            true
+        })
+        .filter(|(_, isolated, ..)| if drift_only { !isolated } else { true })
+        .collect();
+
+    if probes.is_empty() {
+        println!("{} No isolation probe events found in range.", "·".dimmed());
+        return Ok(());
+    }
+
+    let total = probes.len();
+    let drift_count = probes.iter().filter(|(_, isolated, ..)| !isolated).count();
+
+    println!(
+        "\n{} Isolation report — {} probe(s)",
+        "⬡".cyan().bold(),
+        total,
+    );
+
+    if drift_count == 0 {
+        println!(
+            "  {} Air-gap held across all {} probe(s) in range.",
+            "✓".green().bold(),
+            total,
+        );
+    } else {
+        println!(
+            "  {} {} drift event(s) detected out of {} probe(s).",
+            "✗".red().bold(),
+            drift_count.to_string().red().bold(),
+            total,
+        );
+    }
+
+    println!();
+
+    for (entry, isolated, results, iptables_hash) in &probes {
+        let status = if *isolated {
+            "OK   ".green().bold()
+        } else {
+            "DRIFT".red().bold()
+        };
+
+        println!(
+            "  [{}]  {}  seq={}",
+            status,
+            entry.ts.format("%Y-%m-%d %H:%M:%SZ").to_string().dimmed(),
+            entry.seq.to_string().yellow(),
+        );
+
+        if !isolated {
+            for r in results {
+                if r.reachable {
+                    println!(
+                        "         {} {}:{}  reachable — egress confirmed",
+                        "!".red(),
+                        r.host.yellow(),
+                        r.port,
+                    );
+                }
+            }
+        }
+
+        if !iptables_hash.is_empty() {
+            println!(
+                "         iptables sha256={}",
+                &iptables_hash[..16].dimmed(),
+            );
+        }
+    }
+
+    println!();
 
     Ok(())
 }

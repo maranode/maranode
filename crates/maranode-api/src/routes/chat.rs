@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -77,6 +78,13 @@ async fn run(
 ) -> ApiResult<Response> {
     let ws = workspace.workspace();
     let request_id = Uuid::new_v4().to_string();
+
+    let rt = state.rt();
+    if rt.air_gap && !state.isolation_ok.load(Ordering::Relaxed) {
+        return Err(ApiError::service_unavailable(
+            "inference refused: isolation probe detected egress — air-gap integrity cannot be confirmed",
+        ));
+    }
 
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("`messages` must not be empty"));
@@ -197,6 +205,7 @@ async fn run(
     let effective_rag = req.rag.as_ref();
 
     let mut rag_sources: Option<Vec<RagSource>> = None;
+    let mut rag_retrieved: Vec<maranode_rag::RetrievedChunk> = Vec::new();
     if let Some(rag_opts) = effective_rag {
         let rag = state.rag.clone().ok_or_else(|| {
             ApiError::not_implemented(
@@ -241,6 +250,7 @@ async fn run(
             )
             .await;
 
+        rag_retrieved = retrieved.clone();
         match rag.build_context_prompt(&retrieved) {
             Some(context_prompt) => {
                 rag_sources = Some(
@@ -508,6 +518,7 @@ async fn run(
         req.max_tokens,
         eff_seed,
         req.deterministic,
+        &rag_retrieved,
     );
 
     if let Some(r) = &receipt {
@@ -557,6 +568,7 @@ fn build_receipt(
     max_tokens: u32,
     seed: Option<u64>,
     deterministic: bool,
+    rag_chunks: &[maranode_rag::RetrievedChunk],
 ) -> Option<InferenceReceipt> {
     let sk = audit_sign::load_or_create(&state.data_dir).ok()?;
     let signing_key_id = hex::encode(sk.verifying_key().to_bytes());
@@ -594,6 +606,18 @@ fn build_receipt(
             thread_count,
             device_class: state.engine.device().to_string(),
         },
+        sources: rag_chunks
+            .iter()
+            .map(|c| maranode_common::receipt::SourceRef {
+                chunk_id: c.chunk_id.clone(),
+                doc_id: c.doc_id.clone(),
+                source: c.source.clone(),
+                doc_sha256: c.doc_sha256.clone(),
+                chunk_hash: c.content_hash.clone(),
+                score: c.score,
+            })
+            .collect(),
+        grounded: !rag_chunks.is_empty(),
         signature: None,
     };
 

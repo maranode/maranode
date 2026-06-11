@@ -12,7 +12,7 @@ use crate::config::RagConfig;
 use crate::embed::Embedder;
 use crate::extract::{extract, DocumentContent};
 use crate::math::normalize;
-use crate::store::{ChunkRow, CollectionInfo, DocumentInfo, VectorStore};
+use crate::store::{sha256_hex, ChunkRow, CollectionInfo, DocumentInfo, VectorStore};
 
 #[derive(Debug, Clone)]
 pub struct IngestStats {
@@ -25,6 +25,10 @@ pub struct IngestStats {
 
 #[derive(Debug, Clone)]
 pub struct RetrievedChunk {
+    pub chunk_id: String,
+    pub doc_id: String,
+    pub doc_sha256: String,
+    pub content_hash: String,
     pub source: String,
     pub ordinal: usize,
     pub text: String,
@@ -160,11 +164,15 @@ impl RagEngine {
         let chunk_rows: Vec<ChunkRow> = rich_chunks
             .into_iter()
             .zip(embeddings.into_iter())
-            .map(|(rc, emb)| ChunkRow {
-                text: rc.text,
-                embedding: emb,
-                page_number: rc.page_number,
-                section: rc.section,
+            .map(|(rc, emb)| {
+                let content_hash = sha256_hex(rc.text.as_bytes());
+                ChunkRow {
+                    text: rc.text,
+                    embedding: emb,
+                    page_number: rc.page_number,
+                    section: rc.section,
+                    content_hash,
+                }
             })
             .collect();
 
@@ -338,6 +346,10 @@ impl RagEngine {
 
 fn scored_to_retrieved(h: crate::store::ScoredChunk) -> RetrievedChunk {
     RetrievedChunk {
+        chunk_id: h.chunk_id,
+        doc_id: h.doc_id,
+        doc_sha256: h.doc_sha256,
+        content_hash: h.content_hash,
         source: h.source,
         ordinal: h.ordinal,
         text: h.text,

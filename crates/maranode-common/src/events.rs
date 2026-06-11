@@ -74,6 +74,15 @@ pub enum AuditEvent {
         hits: usize,
     },
 
+    IsolationProbe {
+        /// true if all egress probes were blocked (isolation intact)
+        isolated: bool,
+        /// list of hosts that were probed and whether they were reachable
+        probe_results: Vec<ProbeResult>,
+        /// iptables-save snapshot hash (empty string if not available)
+        iptables_hash: String,
+    },
+
     WorkspaceShredded {
         slug: String,
         actor: String,
@@ -110,6 +119,14 @@ pub enum IsolationMode {
 pub enum ImportSource {
     Remote { url: String },
     Local { path: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeResult {
+    pub host: String,
+    pub port: u16,
+    /// true means the connection succeeded — isolation is BROKEN for this host
+    pub reachable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

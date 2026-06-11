@@ -3,12 +3,14 @@
 mod admin;
 mod config;
 mod lifecycle;
+mod probe;
 mod reload;
 mod shutdown;
 mod unix_serve;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -396,6 +398,7 @@ async fn main() -> Result<()> {
         user_db: Arc::new(tokio::sync::Mutex::new(user_db)),
         oidc_pending: new_oidc_pending(),
         auth_ip_limiter: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        isolation_ok: Arc::new(AtomicBool::new(true)),
     };
 
     let reload_services = Arc::new(ReloadServices {
@@ -411,6 +414,7 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     spawn_sighup_reload(reload_services.clone());
 
+    probe::spawn(state.clone());
     spawn_retention_scheduler(state.clone());
 
     let router = build_router(state).merge(admin::router(reload_services));

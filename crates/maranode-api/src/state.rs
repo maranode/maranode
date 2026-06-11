@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -217,6 +217,10 @@ pub struct AppState {
 
     /// per-IP auth rate limiter: ip_str -> (count, window_start_secs)
     pub auth_ip_limiter: Arc<Mutex<HashMap<String, (u32, u64)>>>,
+
+    /// false when the last isolation probe detected egress (isolation broken).
+    /// starts as true (optimistic); probe task sets it to false on drift.
+    pub isolation_ok: Arc<AtomicBool>,
 }
 
 impl AppState {

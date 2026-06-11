@@ -4,6 +4,17 @@ use uuid::Uuid;
 
 pub const RECEIPT_VERSION: u32 = 1;
 
+/// one RAG chunk that was retrieved and used to ground the answer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceRef {
+    pub chunk_id: String,
+    pub doc_id: String,
+    pub source: String,
+    pub doc_sha256: String,
+    pub chunk_hash: String,
+    pub score: f32,
+}
+
 /// environment snapshot at inference time, so the receipt can be reproduced.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvFingerprint {
@@ -58,6 +69,14 @@ pub struct InferenceReceipt {
     /// environment snapshot: kernel build, thread count, device class
     #[serde(default)]
     pub env: EnvFingerprint,
+
+    /// RAG source chunks used to ground this answer; empty if no RAG was used
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceRef>,
+
+    /// true if at least one RAG source was retrieved above min_score threshold
+    #[serde(default)]
+    pub grounded: bool,
 
     /// hex-encoded ed25519 signature over the canonical bytes (see `canonical_bytes`)
     #[serde(skip_serializing_if = "Option::is_none")]
