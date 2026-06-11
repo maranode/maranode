@@ -16,7 +16,7 @@ use clap::Parser;
 use tracing::info;
 
 use maranode_api::state::Stats;
-use maranode_api::{build_router, runtime::new_shared, AppState, EngineEmbedder};
+use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, EngineEmbedder};
 use maranode_audit::AuditLog;
 use maranode_common::events::AuditEvent;
 use maranode_common::models::ModelId;
@@ -382,6 +382,7 @@ async fn main() -> Result<()> {
         rate_limiter: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         workspace_usage: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         user_db: Arc::new(tokio::sync::Mutex::new(user_db)),
+        oidc_pending: new_oidc_pending(),
     };
 
     let reload_services = Arc::new(ReloadServices {

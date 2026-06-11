@@ -11,7 +11,9 @@ pub mod workspace_ctx;
 
 pub use rag_embedder::EngineEmbedder;
 pub use runtime::{RuntimeSettings, SharedRuntime};
-pub use state::{AppState, IdentityConfig, LdapCfg, OidcCfg, RagIngestPolicy, SamlCfg};
+pub use state::{
+    new_oidc_pending, AppState, IdentityConfig, LdapCfg, OidcCfg, RagIngestPolicy, SamlCfg,
+};
 pub use user_ctx::UserCtx;
 pub use workspace_ctx::WorkspaceCtx;
 

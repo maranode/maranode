@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
@@ -132,6 +132,56 @@ impl WorkspaceUsage {
     }
 }
 
+/// TTL for a pending OIDC login flow (10 minutes).
+const OIDC_PENDING_TTL: Duration = Duration::from_secs(600);
+
+/// short-lived state kept between oidc_login and oidc_callback.
+/// keyed by the CSRF state token value.
+pub struct OidcPendingState {
+    pub pkce_verifier_secret: String,
+    pub nonce_secret: String,
+    pub expires_at: Instant,
+}
+
+pub type OidcPendingMap = Arc<Mutex<HashMap<String, OidcPendingState>>>;
+
+pub fn new_oidc_pending() -> OidcPendingMap {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+/// insert a new pending entry; also prune any expired entries at the same time.
+pub async fn oidc_pending_insert(
+    map: &OidcPendingMap,
+    state_token: String,
+    pkce_verifier_secret: String,
+    nonce_secret: String,
+) {
+    let mut guard = map.lock().await;
+    let now = Instant::now();
+    guard.retain(|_, v| v.expires_at > now);
+    guard.insert(
+        state_token,
+        OidcPendingState {
+            pkce_verifier_secret,
+            nonce_secret,
+            expires_at: now + OIDC_PENDING_TTL,
+        },
+    );
+}
+
+/// consume a pending entry; returns None if missing or expired.
+pub async fn oidc_pending_take(
+    map: &OidcPendingMap,
+    state_token: &str,
+) -> Option<OidcPendingState> {
+    let mut guard = map.lock().await;
+    let entry = guard.remove(state_token)?;
+    if entry.expires_at < Instant::now() {
+        return None;
+    }
+    Some(entry)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub store: ModelStore,
@@ -160,6 +210,9 @@ pub struct AppState {
 
     /// user and session database
     pub user_db: Arc<Mutex<UserDb>>,
+
+    /// short-lived OIDC pending state: csrf_token -> (pkce_verifier, nonce, ttl)
+    pub oidc_pending: OidcPendingMap,
 }
 
 impl AppState {

@@ -79,8 +79,8 @@ async fn oidc_login(State(state): State<AppState>) -> ApiResult<Response> {
             .map_err(|e| ApiError::internal(e.to_string()))?,
     );
 
-    let (pkce_challenge, _verifier) = PkceCodeChallenge::new_random_sha256();
-    let (auth_url, _csrf, _nonce) = client
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    let (auth_url, csrf_token, nonce) = client
         .authorize_url(
             openidconnect::AuthenticationFlow::<openidconnect::core::CoreResponseType>::AuthorizationCode,
             CsrfToken::new_random,
@@ -92,13 +92,20 @@ async fn oidc_login(State(state): State<AppState>) -> ApiResult<Response> {
         .set_pkce_challenge(pkce_challenge)
         .url();
 
+    crate::state::oidc_pending_insert(
+        &state.oidc_pending,
+        csrf_token.secret().clone(),
+        pkce_verifier.secret().clone(),
+        nonce.secret().clone(),
+    )
+    .await;
+
     Ok(Redirect::temporary(auth_url.as_str()).into_response())
 }
 
 #[derive(Deserialize)]
 struct OidcCallbackParams {
     code: String,
-    #[allow(dead_code)]
     state: Option<String>,
 }
 
@@ -106,8 +113,19 @@ async fn oidc_callback(
     State(state): State<AppState>,
     Query(params): Query<OidcCallbackParams>,
 ) -> ApiResult<Json<TokenResp>> {
+    use oauth2::PkceCodeVerifier;
     use openidconnect::core::CoreClient;
     use openidconnect::{AuthorizationCode, IssuerUrl, RedirectUrl, TokenResponse};
+
+    let state_token = params
+        .state
+        .as_deref()
+        .ok_or_else(|| ApiError::unauthorized("missing state parameter"))?;
+
+    let pending =
+        crate::state::oidc_pending_take(&state.oidc_pending, state_token)
+            .await
+            .ok_or_else(|| ApiError::unauthorized("invalid or expired OIDC state"))?;
 
     let identity = state.rt().identity;
     let cfg = identity
@@ -132,8 +150,12 @@ async fn oidc_callback(
             .map_err(|e| ApiError::internal(e.to_string()))?,
     );
 
+    let pkce_verifier = PkceCodeVerifier::new(pending.pkce_verifier_secret);
+    let nonce = openidconnect::Nonce::new(pending.nonce_secret);
+
     let token_resp = client
         .exchange_code(AuthorizationCode::new(params.code))
+        .set_pkce_verifier(pkce_verifier)
         .request_async(openidconnect::reqwest::async_http_client)
         .await
         .map_err(|e| ApiError::internal(format!("OIDC token exchange: {}", e)))?;
@@ -143,10 +165,7 @@ async fn oidc_callback(
         .ok_or_else(|| ApiError::internal("no id_token in response"))?;
 
     let claims = id_token
-        .claims(
-            &client.id_token_verifier(),
-            &openidconnect::Nonce::new(String::new()),
-        )
+        .claims(&client.id_token_verifier(), &nonce)
         .map_err(|e| ApiError::internal(format!("OIDC claims: {}", e)))?;
 
     let sub = claims.subject().to_string();

@@ -12,7 +12,7 @@
 ## Phase 2 — Commercial Foundation (remaining)
 
 - [x] **LDAP `ldap3` integration compile-time gate** — `ldap3` is in deps but it pulls in native OpenSSL which may conflict with `rustls`. Should be a feature flag.
-- [ ] **OIDC PKCE verifier + nonce server-side storage** — The OIDC callback currently skips nonce and PKCE verifier validation (noted in comment). A short-lived in-memory or SQLite-backed cache is needed to properly validate callbacks.
+- [x] **OIDC PKCE verifier + nonce server-side storage** — The OIDC callback currently skips nonce and PKCE verifier validation (noted in comment). A short-lived in-memory or SQLite-backed cache is needed to properly validate callbacks.
 - [ ] **SAML signature verification** — The pure-Rust SAML implementation parses the assertion but does not verify the IdP's XML signature. This is a security gap for production use — needs `xmlsec1` or an alternative approach.
 - [ ] **Password reset flow** — No self-service or admin-triggered password reset email. Admins can set a new password via API but there is no notification mechanism.
 
