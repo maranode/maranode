@@ -34,6 +34,10 @@ path = "integration/device_selection_test.rs"
 name = "rag"
 path = "integration/rag_test.rs"
 
+[[test]]
+name = "shred"
+path = "integration/shred_test.rs"
+
 # E2E tests
 [[test]]
 name = "repro_ci"
@@ -63,3 +67,5 @@ http-body-util = { workspace = true }
 async-trait = "0.1"
 tempfile    = { workspace = true }
 reqwest     = { version = "0.12", features = ["json"] }
+uuid        = { workspace = true }
+chrono      = { workspace = true }

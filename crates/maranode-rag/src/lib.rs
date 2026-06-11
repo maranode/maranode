@@ -1,6 +1,6 @@
 //! ingest local documents, compute embeddings, and search by similarity
 
-mod crypt;
+pub mod crypt;
 pub mod chunk;
 pub mod config;
 pub mod embed;
