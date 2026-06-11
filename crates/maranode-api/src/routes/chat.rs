@@ -487,23 +487,27 @@ async fn run(
         )
         .await;
 
-    let receipt = if req.with_receipt {
-        build_receipt(
-            &state,
-            &request_id,
-            &model_id.to_string(),
-            &manifest.sha256,
-            manifest.quantization.clone(),
-            &messages,
-            &resp.content,
-            resp.tokens_in,
-            resp.tokens_out,
-            req.temperature,
-            req.max_tokens,
-        )
-    } else {
-        None
-    };
+    let receipt = build_receipt(
+        &state,
+        &request_id,
+        &model_id.to_string(),
+        &manifest.sha256,
+        manifest.quantization.clone(),
+        &messages,
+        &resp.content,
+        resp.tokens_in,
+        resp.tokens_out,
+        req.temperature,
+        req.max_tokens,
+    );
+
+    if let Some(r) = &receipt {
+        let _ = audit_log
+            .append("api", AuditEvent::InferenceReceipt { receipt: r.clone() })
+            .await;
+    }
+
+    let response_receipt = if req.with_receipt { receipt } else { None };
 
     Ok(Json(ChatCompletionResponse {
         id: format!("chatcmpl-{}", request_id),
@@ -524,7 +528,7 @@ async fn run(
             total_tokens: resp.tokens_in.saturating_add(resp.tokens_out),
         },
         sources: rag_sources,
-        receipt,
+        receipt: response_receipt,
     })
     .into_response())
 }

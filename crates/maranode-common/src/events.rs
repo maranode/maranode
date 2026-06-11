@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::models::{InferenceDevice, ModelId};
+use crate::receipt::InferenceReceipt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -55,6 +56,10 @@ pub enum AuditEvent {
         request_id: String,
         model: ModelId,
         reason: String,
+    },
+
+    InferenceReceipt {
+        receipt: InferenceReceipt,
     },
 
     RagDocumentIngested {
