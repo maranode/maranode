@@ -92,9 +92,15 @@ pub enum AuditCommand {
         /// request_id from the chat response (X-Request-Id header or receipt field)
         record_id: String,
     },
+
+    /// re-run inference for a record and compare output hash to the stored receipt
+    Replay {
+        /// request_id to replay
+        record_id: String,
+    },
 }
 
-pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
+pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
     let log_path = default_log_path(data_dir);
     let key_path = default_key_path(data_dir);
 
@@ -313,6 +319,10 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
                 }
             }
         }
+
+        AuditCommand::Replay { record_id } => {
+            replay_inference(&log_path, &record_id, host).await?;
+        }
     }
 
     Ok(())
@@ -439,6 +449,123 @@ fn restore_audit(data_dir: &Path, src: &Path, force: bool) -> Result<()> {
                 eprintln!("  seq {}: {}", v.seq, v.detail);
             }
         }
+    }
+
+    Ok(())
+}
+
+async fn replay_inference(log_path: &std::path::Path, record_id: &str, host: &str) -> Result<()> {
+    if !log_path.exists() {
+        anyhow::bail!("no audit log found at {}", log_path.display());
+    }
+
+    let content = std::fs::read_to_string(log_path)?;
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    // find stored receipt
+    let stored = lines
+        .iter()
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+        .find_map(|entry| {
+            if let AuditEvent::InferenceReceipt { receipt } = entry.event {
+                if receipt.request_id == record_id {
+                    return Some(receipt);
+                }
+            }
+            None
+        });
+
+    let stored = stored.ok_or_else(|| {
+        anyhow::anyhow!(
+            "no inference receipt found for request id {}",
+            record_id
+        )
+    })?;
+
+    // find the matching InferenceStart to get the logged prompt
+    let prompt_json = lines
+        .iter()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find_map(|v| {
+            if v["event"] == "inference_start" && v["request_id"] == record_id {
+                v["prompt"].as_str().map(str::to_string)
+            } else {
+                None
+            }
+        });
+
+    let prompt_json = prompt_json.ok_or_else(|| {
+        anyhow::anyhow!(
+            "replay requires log_prompts=true in daemon config; \
+             no prompt was recorded for request id {}",
+            record_id
+        )
+    })?;
+
+    let messages: Vec<serde_json::Value> = serde_json::from_str(&prompt_json)
+        .map_err(|e| anyhow::anyhow!("could not parse logged prompt: {e}"))?;
+
+    println!(
+        "{} Replaying {} (model={}, messages={}) …",
+        "·".dimmed(),
+        record_id.cyan(),
+        stored.model_id.yellow(),
+        messages.len(),
+    );
+
+    let body = serde_json::json!({
+        "model": stored.model_id,
+        "messages": messages,
+        "max_tokens": stored.decode_params.max_tokens.unwrap_or(2048),
+        "deterministic": true,
+        "with_receipt": true,
+    });
+
+    let url = format!("{}/v1/chat/completions", host.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("could not reach daemon at {host}: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("daemon returned {status}: {text}");
+    }
+
+    let resp_val: serde_json::Value = resp.json().await?;
+    let replay_receipt = resp_val
+        .get("receipt")
+        .ok_or_else(|| anyhow::anyhow!("daemon response contained no receipt field"))?;
+
+    let replay_output_sha256 = replay_receipt["output_sha256"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("replay receipt missing output_sha256"))?;
+
+    println!(
+        "  stored  output_sha256: {}",
+        stored.output_sha256.cyan()
+    );
+    println!(
+        "  replay  output_sha256: {}",
+        replay_output_sha256.cyan()
+    );
+
+    if stored.output_sha256 == replay_output_sha256 {
+        println!("\n{} Output hash {}.", "✓".green().bold(), "MATCH".green().bold());
+    } else {
+        eprintln!(
+            "\n{} Output hash {}. The run is not bit-exact.",
+            "✗".red().bold(),
+            "MISMATCH".red().bold(),
+        );
+        eprintln!(
+            "  This usually means the model was run without --features deterministic-kernels \
+             or on different hardware."
+        );
+        std::process::exit(1);
     }
 
     Ok(())

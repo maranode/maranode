@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use rand::RngCore;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -31,13 +32,15 @@ impl WorkspaceDb {
         let _ = conn.execute_batch(
             "ALTER TABLE workspaces ADD COLUMN max_memory_bytes INTEGER;",
         );
+        let _ = conn.execute_batch(include_str!("sql/migrate_add_dek.sql"));
         Ok(Self { conn })
     }
 
     pub fn list(&self) -> Result<Vec<Workspace>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, slug, name, api_key_hash, model_allowlist, rate_limit_rpm, system_prompt,
-                    created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes
+                    created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes,
+                    dek
              FROM workspaces ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -54,13 +57,14 @@ impl WorkspaceDb {
                 row.get::<_, Option<u32>>(9)?,
                 row.get::<_, Option<u32>>(10)?,
                 row.get::<_, Option<u64>>(11)?,
+                row.get::<_, Option<String>>(12)?,
             ))
         })?;
 
         let mut out = Vec::new();
         for row in rows {
             let (id, slug, name, api_key_hash, allowlist_str, rate_limit_rpm, system_prompt,
-                 created_at, net_ns, max_concurrent_requests, max_models, max_memory_bytes) = row?;
+                 created_at, net_ns, max_concurrent_requests, max_models, max_memory_bytes, dek) = row?;
             out.push(Workspace {
                 id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),
                 slug,
@@ -74,6 +78,7 @@ impl WorkspaceDb {
                 max_concurrent_requests,
                 max_models,
                 max_memory_bytes,
+                dek,
             });
         }
         Ok(out)
@@ -82,7 +87,8 @@ impl WorkspaceDb {
     pub fn get_by_slug(&self, slug: &str) -> Result<Option<Workspace>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, slug, name, api_key_hash, model_allowlist, rate_limit_rpm, system_prompt,
-                    created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes
+                    created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes,
+                    dek
              FROM workspaces WHERE slug = ?1",
         )?;
         let mut rows = stmt.query(params![slug])?;
@@ -103,6 +109,7 @@ impl WorkspaceDb {
                 max_concurrent_requests: row.get(9)?,
                 max_models: row.get(10)?,
                 max_memory_bytes: row.get(11)?,
+                dek: row.get(12)?,
             }))
         } else {
             Ok(None)
@@ -110,11 +117,13 @@ impl WorkspaceDb {
     }
 
     pub fn create(&self, ws: &Workspace) -> Result<()> {
+        let dek = ws.dek.clone().unwrap_or_else(generate_dek);
         self.conn.execute(
             "INSERT INTO workspaces
                 (id, slug, name, api_key_hash, model_allowlist, rate_limit_rpm, system_prompt,
-                 created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 created_at, net_namespace, max_concurrent_requests, max_models, max_memory_bytes,
+                 dek)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 ws.id.to_string(),
                 ws.slug,
@@ -128,6 +137,7 @@ impl WorkspaceDb {
                 ws.max_concurrent_requests,
                 ws.max_models,
                 ws.max_memory_bytes,
+                dek,
             ],
         ).context("inserting workspace")?;
         Ok(())
@@ -165,6 +175,47 @@ impl WorkspaceDb {
             .context("deleting workspace")?;
         Ok(n > 0)
     }
+
+    /// returns the raw 32-byte DEK for the workspace, or None if it was destroyed.
+    pub fn get_dek_bytes(&self, slug: &str) -> Result<Option<[u8; 32]>> {
+        let hex: Option<String> = self.conn
+            .query_row(
+                "SELECT dek FROM workspaces WHERE slug = ?1",
+                params![slug],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("reading dek")?
+            .flatten();
+
+        match hex {
+            None => Ok(None),
+            Some(h) => {
+                let bytes = hex::decode(&h).context("decoding dek hex")?;
+                let arr: [u8; 32] = bytes
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("dek must be exactly 32 bytes"))?;
+                Ok(Some(arr))
+            }
+        }
+    }
+
+    /// set the DEK column to NULL, making all encrypted data permanently unreadable.
+    /// this is the crypto-shredding step; it cannot be undone.
+    pub fn destroy_dek(&self, slug: &str) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE workspaces SET dek = NULL WHERE slug = ?1",
+            params![slug],
+        ).context("destroying dek")?;
+        Ok(n > 0)
+    }
+}
+
+/// generate a fresh random 32-byte DEK and return it hex-encoded.
+pub fn generate_dek() -> String {
+    let mut key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key);
+    hex::encode(key)
 }
 
 fn parse_allowlist(s: &str) -> Vec<String> {

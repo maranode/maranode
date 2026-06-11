@@ -199,6 +199,7 @@ async fn create_workspace(
         max_concurrent_requests: req.max_concurrent_requests,
         max_models: req.max_models,
         max_memory_bytes: req.max_memory_bytes,
+        dek: None,
     };
 
     state

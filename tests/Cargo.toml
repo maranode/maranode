@@ -36,6 +36,10 @@ path = "integration/rag_test.rs"
 
 # E2E tests
 [[test]]
+name = "repro_ci"
+path = "integration/repro_ci_test.rs"
+
+[[test]]
 name = "api_e2e"
 path = "e2e/api_test.rs"
 

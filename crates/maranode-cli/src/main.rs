@@ -101,7 +101,7 @@ async fn run() -> Result<()> {
             commands::model::run(action, &data_dir).await?;
         }
         Commands::Audit { action } => {
-            commands::audit::run(action, &data_dir).await?;
+            commands::audit::run(action, &data_dir, &cli.host).await?;
         }
         Commands::Verify { action } => {
             commands::verify::run(action, &cli.host).await?;

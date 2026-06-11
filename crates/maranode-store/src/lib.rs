@@ -12,4 +12,4 @@ pub mod workspace_db;
 pub use bootstrap::{maybe_bootstrap, BootstrapOptions, ModelCoverage};
 pub use store::ModelStore;
 pub use user_db::{SessionRecord, UserDb};
-pub use workspace_db::WorkspaceDb;
+pub use workspace_db::{generate_dek, WorkspaceDb};

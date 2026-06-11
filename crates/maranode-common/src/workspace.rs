@@ -19,6 +19,9 @@ pub struct Workspace {
     pub max_models: Option<u32>,
     /// max total loaded model size in bytes for this workspace
     pub max_memory_bytes: Option<u64>,
+    /// hex-encoded 32-byte data-encryption key for this workspace.
+    /// None means the DEK was destroyed (workspace shredded) or not yet generated.
+    pub dek: Option<String>,
 }
 
 impl Workspace {
