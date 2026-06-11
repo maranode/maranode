@@ -12,7 +12,7 @@ use uuid::Uuid;
 use maranode_common::user::{AuthProvider, Role, User};
 
 use crate::error::{ApiError, ApiResult};
-use crate::state::AppState;
+use crate::state::{check_auth_ip_rate, client_ip, AppState};
 use crate::user_ctx::{AdminCtx, UserCtx};
 
 pub fn router() -> Router<AppState> {
@@ -44,8 +44,12 @@ struct LoginResp {
 
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginReq>,
 ) -> ApiResult<Json<LoginResp>> {
+    let ip = client_ip(&headers);
+    check_auth_ip_rate(&state.auth_ip_limiter, &ip, 20).await?;
+
     let db = state.user_db.lock().await;
 
     let user = db

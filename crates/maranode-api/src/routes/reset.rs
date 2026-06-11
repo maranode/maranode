@@ -1,9 +1,9 @@
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
 use serde::Deserialize;
 
 use crate::error::{ApiError, ApiResult};
 use crate::runtime::SmtpCfg;
-use crate::state::AppState;
+use crate::state::{check_auth_ip_rate, client_ip, AppState};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -24,8 +24,12 @@ struct ResetConfirm {
 
 async fn request_reset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<ResetRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let ip = client_ip(&headers);
+    check_auth_ip_rate(&state.auth_ip_limiter, &ip, 10).await?;
+
     let rt = state.rt();
     let smtp = rt
         .smtp

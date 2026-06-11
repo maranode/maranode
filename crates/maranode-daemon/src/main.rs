@@ -383,6 +383,7 @@ async fn main() -> Result<()> {
         workspace_usage: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         user_db: Arc::new(tokio::sync::Mutex::new(user_db)),
         oidc_pending: new_oidc_pending(),
+        auth_ip_limiter: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 
     let reload_services = Arc::new(ReloadServices {

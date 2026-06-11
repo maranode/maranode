@@ -2,6 +2,7 @@
 
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
@@ -13,7 +14,7 @@ use uuid::Uuid;
 use maranode_common::user::{AuthProvider, Role, User};
 
 use crate::error::{ApiError, ApiResult};
-use crate::state::AppState;
+use crate::state::{check_auth_ip_rate, client_ip, AppState};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -196,9 +197,13 @@ struct LdapLoginReq {
 #[cfg(feature = "ldap")]
 async fn ldap_login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LdapLoginReq>,
 ) -> ApiResult<Json<TokenResp>> {
     use ldap3::{LdapConnAsync, Scope, SearchEntry};
+
+    let ip = client_ip(&headers);
+    check_auth_ip_rate(&state.auth_ip_limiter, &ip, 20).await?;
 
     let identity = state.rt().identity;
     let cfg = identity
@@ -268,6 +273,7 @@ async fn ldap_login(
 #[cfg(not(feature = "ldap"))]
 async fn ldap_login(
     State(_state): State<AppState>,
+    _headers: HeaderMap,
     Json(_req): Json<LdapLoginReq>,
 ) -> ApiResult<Json<TokenResp>> {
     Err(ApiError::not_implemented(

@@ -214,6 +214,9 @@ pub struct AppState {
 
     /// short-lived OIDC pending state: csrf_token -> (pkce_verifier, nonce, ttl)
     pub oidc_pending: OidcPendingMap,
+
+    /// per-IP auth rate limiter: ip_str -> (count, window_start_secs)
+    pub auth_ip_limiter: Arc<Mutex<HashMap<String, (u32, u64)>>>,
 }
 
 impl AppState {
@@ -231,4 +234,57 @@ impl AppState {
             .write()
             .expect("runtime settings lock poisoned") = settings;
     }
+}
+
+/// extract the best available client IP from request headers.
+/// checks X-Forwarded-For first, then X-Real-IP, then returns "unknown".
+pub fn client_ip(headers: &axum::http::HeaderMap) -> String {
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(first) = xff.split(',').next() {
+            let ip = first.trim().to_string();
+            if !ip.is_empty() {
+                return ip;
+            }
+        }
+    }
+    if let Some(real) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        let ip = real.trim().to_string();
+        if !ip.is_empty() {
+            return ip;
+        }
+    }
+    "unknown".to_string()
+}
+
+/// sliding-window per-IP rate limiter for auth endpoints.
+/// allows up to `max_per_minute` attempts per 60-second window per IP.
+pub async fn check_auth_ip_rate(
+    limiter: &Mutex<HashMap<String, (u32, u64)>>,
+    ip: &str,
+    max_per_minute: u32,
+) -> Result<(), crate::error::ApiError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut map = limiter.lock().await;
+
+    // prune stale entries every so often to keep memory bounded
+    if map.len() > 4096 {
+        map.retain(|_, (_, start)| now.saturating_sub(*start) < 120);
+    }
+
+    let entry = map.entry(ip.to_string()).or_insert((0, now));
+    if now.saturating_sub(entry.1) >= 60 {
+        *entry = (1, now);
+    } else {
+        entry.0 = entry.0.saturating_add(1);
+        if entry.0 > max_per_minute {
+            return Err(crate::error::ApiError::rate_limited(
+                "too many login attempts from this IP, try again in a minute",
+            ));
+        }
+    }
+    Ok(())
 }
