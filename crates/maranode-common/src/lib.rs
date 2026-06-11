@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod events;
+pub mod gguf;
 pub mod models;
 pub mod paths;
 pub mod secure;

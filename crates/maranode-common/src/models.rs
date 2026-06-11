@@ -44,6 +44,8 @@ pub struct ModelManifest {
     pub blob_path: String,
     #[serde(default)]
     pub model_type: ModelType,
+    #[serde(default)]
+    pub context_length: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

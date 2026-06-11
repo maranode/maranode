@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use maranode_common::gguf;
 use maranode_common::models::{ModelFormat, ModelId, ModelManifest, ModelType};
 
 use crate::blob;
@@ -54,6 +55,8 @@ impl ModelStore {
             .to_string_lossy()
             .into_owned();
 
+        let context_length = gguf::read_context_length(std::path::Path::new(&blob_path));
+
         let manifest = ModelManifest {
             id: Uuid::new_v4(),
             model_id: model_id.clone(),
@@ -64,6 +67,7 @@ impl ModelStore {
             imported_at: Utc::now(),
             blob_path,
             model_type,
+            context_length,
         };
 
         inner
@@ -217,6 +221,7 @@ impl ModelStore {
         }
 
         let size_bytes = std::fs::metadata(&blob_path)?.len();
+        let context_length = gguf::read_context_length(&blob_path);
 
         let manifest = ModelManifest {
             id: Uuid::new_v4(),
@@ -228,6 +233,7 @@ impl ModelStore {
             imported_at: Utc::now(),
             blob_path: blob_path.to_string_lossy().into_owned(),
             model_type,
+            context_length,
         };
 
         inner

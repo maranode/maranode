@@ -28,14 +28,17 @@ impl ManifestDb {
         let _ = self
             .conn
             .execute_batch(include_str!("sql/migrate_add_model_type.sql"));
+        let _ = self
+            .conn
+            .execute_batch(include_str!("sql/migrate_add_context_length.sql"));
         Ok(())
     }
 
     pub fn insert(&self, m: &ModelManifest) -> Result<()> {
         self.conn.execute(
             "INSERT INTO models
-             (id, name, tag, sha256, size_bytes, format, quantization, blob_path, imported_at, model_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (id, name, tag, sha256, size_bytes, format, quantization, blob_path, imported_at, model_type, context_length)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 m.id.to_string(),
                 m.model_id.name,
@@ -50,6 +53,7 @@ impl ManifestDb {
                     ModelType::Llm       => "llm",
                     ModelType::Embedding => "embedding",
                 },
+                m.context_length.map(|v| v as i64),
             ],
         )
         .context("inserting model manifest")?;
@@ -58,7 +62,7 @@ impl ManifestDb {
 
     pub fn get(&self, model_id: &ModelId) -> Result<Option<ModelManifest>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, tag, sha256, size_bytes, quantization, blob_path, imported_at, model_type
+            "SELECT id, name, tag, sha256, size_bytes, quantization, blob_path, imported_at, model_type, context_length
              FROM models WHERE name = ?1 AND tag = ?2",
         )?;
         let mut rows = stmt.query(params![model_id.name, model_id.tag])?;
@@ -81,6 +85,7 @@ impl ManifestDb {
                 } else {
                     ModelType::Llm
                 },
+                context_length: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
             }))
         } else {
             Ok(None)
@@ -89,7 +94,7 @@ impl ManifestDb {
 
     pub fn list(&self) -> Result<Vec<ModelManifest>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, tag, sha256, size_bytes, quantization, blob_path, imported_at, model_type
+            "SELECT id, name, tag, sha256, size_bytes, quantization, blob_path, imported_at, model_type, context_length
              FROM models ORDER BY imported_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -103,6 +108,7 @@ impl ManifestDb {
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
                 row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
             ))
         })?;
 
@@ -118,6 +124,7 @@ impl ManifestDb {
                 blob_path,
                 imported_at,
                 model_type_str,
+                context_length_raw,
             ) = row?;
             let model_type = if model_type_str.as_deref() == Some("embedding") {
                 ModelType::Embedding
@@ -134,6 +141,7 @@ impl ManifestDb {
                 blob_path,
                 imported_at: imported_at.parse().unwrap_or_else(|_| Utc::now()),
                 model_type,
+                context_length: context_length_raw.map(|v| v as u32),
             });
         }
         Ok(manifests)

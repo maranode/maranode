@@ -84,6 +84,7 @@ struct ModelDetail {
     sha256: String,
     quantization: Option<String>,
     imported_at: String,
+    context_length: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +123,7 @@ async fn list_models_details(
             sha256: m.sha256.clone(),
             quantization: m.quantization.clone(),
             imported_at: m.imported_at.to_rfc3339(),
+            context_length: m.context_length,
         })
         .collect::<Vec<_>>();
 
