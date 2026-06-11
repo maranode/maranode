@@ -1,0 +1,33 @@
+pre_install() {
+    getent group  maranode >/dev/null 2>&1 || groupadd -r maranode
+    getent passwd maranode >/dev/null 2>&1 || \
+        useradd -r -g maranode -d /var/lib/maranode \
+                -s /usr/bin/nologin -c "Maranode daemon" maranode
+
+    install -dm750 -o maranode -g maranode /var/lib/maranode
+    install -dm750 -o maranode -g maranode /var/log/maranode
+}
+
+post_install() {
+    systemctl daemon-reload
+    echo "  -> Enable and start the service:"
+    echo "       systemctl enable --now maranoded"
+}
+
+pre_upgrade() {
+    pre_install
+}
+
+post_upgrade() {
+    systemctl daemon-reload
+    systemctl try-restart maranoded.service 2>/dev/null || true
+}
+
+pre_remove() {
+    systemctl stop    maranoded.service 2>/dev/null || true
+    systemctl disable maranoded.service 2>/dev/null || true
+}
+
+post_remove() {
+    systemctl daemon-reload
+}

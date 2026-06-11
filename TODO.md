@@ -5,8 +5,8 @@
 
 
 - [ ] **Independent security audit** — Third-party firm review. Publish results.
-- [ ] **`dnf` (RPM) package repository** — apt repo exists; dnf/yum is not yet published.
-- [ ] **`pacman` (Arch) package** — Not published.
+- [x] **`dnf` (RPM) package repository** — apt repo exists; dnf/yum is not yet published.
+- [x] **`pacman` (Arch) package** — Not published.
 
 
 ## Phase 2 — Commercial Foundation (remaining)

@@ -1,0 +1,89 @@
+# Maintainer: Maranode <info@maranode.com>
+pkgname=maranode
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Private, air-gapped AI inference runtime"
+arch=('x86_64' 'aarch64')
+url="https://maranode.com"
+license=('Apache-2.0')
+depends=('gcc-libs' 'gomp')
+optdepends=('cosign: release signature verification')
+backup=('etc/maranode/config.toml')
+install=maranode.install
+source_x86_64=("${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github.com/maranode/maranode/releases/download/v${pkgver}/${pkgname}-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
+source_aarch64=("${pkgname}-${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/maranode/maranode/releases/download/v${pkgver}/${pkgname}-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+prepare() {
+    case "$CARCH" in
+        x86_64)  _tardir="${pkgname}-${pkgver}-x86_64-unknown-linux-gnu" ;;
+        aarch64) _tardir="${pkgname}-${pkgver}-aarch64-unknown-linux-gnu" ;;
+    esac
+    cd "$srcdir/$_tardir" 2>/dev/null || true
+}
+
+package() {
+    case "$CARCH" in
+        x86_64)  _tardir="${pkgname}-${pkgver}-x86_64-unknown-linux-gnu" ;;
+        aarch64) _tardir="${pkgname}-${pkgver}-aarch64-unknown-linux-gnu" ;;
+    esac
+
+    local _src="$srcdir/$_tardir"
+    [ -d "$_src" ] || _src="$srcdir"
+
+    install -Dm755 "$_src/maranoded" "$pkgdir/usr/bin/maranoded"
+    install -Dm755 "$_src/maranode"  "$pkgdir/usr/bin/maranode"
+
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/system/maranoded.service" <<'EOF'
+[Unit]
+Description=Maranode AI Inference Daemon
+Documentation=https://github.com/maranode/maranode
+After=network.target
+ConditionPathExists=/usr/bin/maranoded
+
+[Service]
+Type=simple
+User=maranode
+Group=maranode
+ExecStart=/usr/bin/maranoded
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/lib/maranode /var/log/maranode
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    install -Dm644 /dev/stdin "$pkgdir/etc/maranode/config.toml" <<'EOF'
+# Maranode configuration
+# Full reference: https://github.com/maranode/maranode
+
+# bind = "127.0.0.1:11984"
+# data_dir = "/var/lib/maranode"
+# device = "auto"  # auto, cpu, gpu, npu
+
+[inference]
+# max_parallel = 4
+# max_queue_depth = 32
+# max_loaded_models = 2
+
+[logging]
+# log_prompts = false
+# content_log_retention_days = 90
+EOF
+
+    install -dm750 "$pkgdir/var/lib/maranode"
+    install -dm750 "$pkgdir/var/log/maranode"
+}
