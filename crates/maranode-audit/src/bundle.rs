@@ -17,6 +17,18 @@ pub fn create_bundle(
     workspace: Option<&str>,
     signing_key: Option<&SigningKey>,
 ) -> Result<()> {
+    create_bundle_with_attestation(log_path, key_path, output_path, workspace, signing_key, None)
+}
+
+/// like create_bundle but also embeds a pre-generated attestation report (as raw JSON bytes).
+pub fn create_bundle_with_attestation(
+    log_path: &Path,
+    key_path: &Path,
+    output_path: &Path,
+    workspace: Option<&str>,
+    signing_key: Option<&SigningKey>,
+    attestation_json: Option<&[u8]>,
+) -> Result<()> {
     let buf = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(buf);
     let opts = zip::write::SimpleFileOptions::default()
@@ -43,12 +55,27 @@ pub fn create_bundle(
     zip.write_all(&integrity_bytes)?;
 
     let integrity_sha256 = format!("{:x}", Sha256::digest(&integrity_bytes));
+
+    let attestation_entry = if let Some(ar_bytes) = attestation_json {
+        let ar_sha256 = format!("{:x}", Sha256::digest(ar_bytes));
+        zip.start_file("attestation.json", opts)?;
+        zip.write_all(ar_bytes)?;
+        Some(serde_json::json!({ "name": "attestation.json", "sha256": ar_sha256 }))
+    } else {
+        None
+    };
+
+    let mut files = vec![
+        serde_json::json!({ "name": "audit.jsonl",    "sha256": log_sha256 }),
+        serde_json::json!({ "name": "integrity.json", "sha256": integrity_sha256 }),
+    ];
+    if let Some(entry) = attestation_entry {
+        files.push(entry);
+    }
+
     let mut manifest = serde_json::json!({
         "created_at": Utc::now().to_rfc3339(),
-        "files": [
-            { "name": "audit.jsonl",    "sha256": log_sha256 },
-            { "name": "integrity.json", "sha256": integrity_sha256 },
-        ]
+        "files": files,
     });
     if let Some(slug) = workspace {
         manifest["workspace"] = serde_json::Value::String(slug.to_string());

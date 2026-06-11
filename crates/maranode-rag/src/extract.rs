@@ -70,20 +70,93 @@ pub fn extract_text(bytes: &[u8], filename: &str) -> Result<String> {
 }
 
 fn extract_pdf(bytes: &[u8], filename: &str) -> Result<DocumentContent> {
-    // One string per PDF page
     let page_texts = pdf_extract::extract_text_from_mem_by_pages(bytes)
         .map_err(|e| anyhow::anyhow!("could not extract text from '{}': {}", filename, e))?;
 
     let page_count = page_texts.len() as u32;
+    let is_empty = page_count == 0 || page_texts.iter().all(|p| p.trim().is_empty());
 
-    if page_count == 0 || page_texts.iter().all(|p| p.trim().is_empty()) {
+    if is_empty {
+        return try_ocr_pdf(bytes, filename);
+    }
+
+    let (title, author) = extract_pdf_meta(bytes);
+
+    let pages: Vec<Page> = page_texts
+        .into_iter()
+        .enumerate()
+        .filter(|(_, t)| !t.trim().is_empty())
+        .map(|(i, text)| Page {
+            number: (i + 1) as u32,
+            text: enrich_with_tables(text),
+        })
+        .collect();
+
+    let full_text = pages
+        .iter()
+        .map(|p| p.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    Ok(DocumentContent {
+        full_text,
+        meta: DocumentMeta { title, author, page_count },
+        pages,
+    })
+}
+
+/// when the PDF has no text layer, try running it through `ocrmypdf --force-ocr`
+/// which calls Tesseract internally. requires ocrmypdf to be installed.
+fn try_ocr_pdf(bytes: &[u8], filename: &str) -> Result<DocumentContent> {
+    use std::process::Command;
+
+    let has_ocrmypdf = Command::new("ocrmypdf")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !has_ocrmypdf {
         bail!(
-            "PDF '{}' produced no extractable text: it may be a scanned image PDF. \
-             Convert it to a text-layer PDF first.",
+            "PDF '{}' has no text layer (scanned image). \
+             Install ocrmypdf to enable automatic OCR: https://ocrmypdf.readthedocs.io",
             filename
         );
     }
 
+    let dir = tempfile::tempdir()?;
+    let in_path = dir.path().join("input.pdf");
+    let out_path = dir.path().join("output.pdf");
+    std::fs::write(&in_path, bytes)?;
+
+    let status = Command::new("ocrmypdf")
+        .args([
+            "--force-ocr",
+            "--quiet",
+            "--output-type", "pdf",
+            in_path.to_str().unwrap(),
+            out_path.to_str().unwrap(),
+        ])
+        .status()?;
+
+    if !status.success() {
+        bail!(
+            "ocrmypdf failed on '{}' (exit {}). \
+             The PDF may be encrypted or corrupt.",
+            filename,
+            status
+        );
+    }
+
+    let ocr_bytes = std::fs::read(&out_path)?;
+    let page_texts = pdf_extract::extract_text_from_mem_by_pages(&ocr_bytes)
+        .map_err(|e| anyhow::anyhow!("text extraction after OCR failed for '{}': {}", filename, e))?;
+
+    if page_texts.iter().all(|p| p.trim().is_empty()) {
+        bail!("OCR produced no text for '{}': document may be blank or unreadable", filename);
+    }
+
+    let page_count = page_texts.len() as u32;
     let (title, author) = extract_pdf_meta(bytes);
 
     let pages: Vec<Page> = page_texts
@@ -96,21 +169,81 @@ fn extract_pdf(bytes: &[u8], filename: &str) -> Result<DocumentContent> {
         })
         .collect();
 
-    let full_text = pages
-        .iter()
-        .map(|p| p.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let full_text = pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n\n");
 
     Ok(DocumentContent {
         full_text,
-        meta: DocumentMeta {
-            title,
-            author,
-            page_count,
-        },
+        meta: DocumentMeta { title, author, page_count },
         pages,
     })
+}
+
+/// heuristically detect and convert whitespace-aligned table blocks to Markdown tables.
+/// works on text that was extracted from PDF with fixed-width column alignment.
+fn enrich_with_tables(text: String) -> String {
+    let mut out = String::with_capacity(text.len() + 256);
+    let mut table_buf: Vec<Vec<String>> = Vec::new();
+
+    let flush_table = |buf: &mut Vec<Vec<String>>, out: &mut String| {
+        if buf.len() < 2 {
+            for row in buf.iter() {
+                out.push_str(&row.join("  "));
+                out.push('\n');
+            }
+            buf.clear();
+            return;
+        }
+        let cols = buf.iter().map(|r| r.len()).max().unwrap_or(0);
+        if cols < 2 {
+            for row in buf.iter() {
+                out.push_str(&row.join("  "));
+                out.push('\n');
+            }
+            buf.clear();
+            return;
+        }
+        // header row
+        out.push_str("| ");
+        out.push_str(&buf[0].join(" | "));
+        out.push_str(" |\n");
+        // separator
+        out.push('|');
+        for _ in 0..cols {
+            out.push_str(" --- |");
+        }
+        out.push('\n');
+        // data rows
+        for row in &buf[1..] {
+            out.push_str("| ");
+            let mut cells: Vec<&str> = row.iter().map(|s| s.as_str()).collect();
+            while cells.len() < cols {
+                cells.push("");
+            }
+            out.push_str(&cells.join(" | "));
+            out.push_str(" |\n");
+        }
+        out.push('\n');
+        buf.clear();
+    };
+
+    for line in text.lines() {
+        // a "table-like" line has 2+ runs of whitespace (>=2 spaces) separating tokens
+        let cells: Vec<String> = line
+            .split("  ")
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect();
+
+        if cells.len() >= 2 && line.contains("  ") {
+            table_buf.push(cells);
+        } else {
+            flush_table(&mut table_buf, &mut out);
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    flush_table(&mut table_buf, &mut out);
+    out
 }
 
 fn extract_pdf_meta(bytes: &[u8]) -> (Option<String>, Option<String>) {

@@ -264,6 +264,12 @@ impl RagEngine {
     pub fn get_document(&self, id: &str) -> Result<Option<DocumentInfo>> {
         self.store.get_document(id)
     }
+    pub fn get_document_text(&self, id: &str) -> Result<Option<String>> {
+        self.store.get_document_text(id)
+    }
+    pub fn set_summary(&self, document_id: &str, summary: &str) -> Result<()> {
+        self.store.set_summary(document_id, summary)
+    }
     pub fn delete_document(&self, document_id: &str) -> Result<bool> {
         self.store.delete_document(document_id)
     }

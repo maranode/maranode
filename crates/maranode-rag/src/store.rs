@@ -335,6 +335,20 @@ impl VectorStore {
         Ok(rows.next().transpose()?)
     }
 
+    pub fn get_document_text(&self, document_id: &str) -> Result<Option<String>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT text FROM rag_chunks WHERE document_id = ?1 ORDER BY ordinal ASC",
+        )?;
+        let rows: Vec<String> = stmt
+            .query_map(params![document_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(rows.join("\n\n")))
+    }
+
     pub fn delete_document(&self, document_id: &str) -> Result<bool> {
         let conn = self.lock_conn();
         let n = conn.execute(

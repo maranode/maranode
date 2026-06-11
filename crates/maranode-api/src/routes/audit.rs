@@ -10,7 +10,8 @@ use axum::{
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
-use maranode_audit::bundle::create_bundle;
+use maranode_audit::bundle::create_bundle_with_attestation;
+use maranode_attestation::report::AttestationReport;
 use maranode_audit::export::{export_gdpr, export_hipaa, export_iso27001, export_soc2, ExportFilter};
 use maranode_audit::log::{default_key_path, default_log_path, AuditLog};
 use maranode_audit::retention::prune_log;
@@ -211,8 +212,21 @@ async fn build_bundle_response(state: &AppState, workspace: Option<&str>) -> Api
     };
 
     let signing_key = sign::load_or_create(&state.data_dir).ok();
-    create_bundle(&log_path, &key_path, &tmp_name, workspace, signing_key.as_ref())
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let attestation_bytes = AttestationReport::generate(
+        log_path.exists().then_some(log_path.as_path()),
+        key_path.exists().then_some(key_path.as_path()),
+    )
+    .ok()
+    .and_then(|r| serde_json::to_vec_pretty(&r).ok());
+    create_bundle_with_attestation(
+        &log_path,
+        &key_path,
+        &tmp_name,
+        workspace,
+        signing_key.as_ref(),
+        attestation_bytes.as_deref(),
+    )
+    .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let bytes = std::fs::read(&tmp_name).map_err(|e| ApiError::internal(e.to_string()))?;
     let _ = std::fs::remove_file(&tmp_name);

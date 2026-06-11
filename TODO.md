@@ -1,16 +1,14 @@
+## Low prioirty
 - [ ] **Install script hosted at `get.maranode.com`** — The `install.sh` script exists in `scripts/` but needs to be deployed to the domain.
-
-## Phase 2 — Commercial Foundation (remaining)
 - [ ] **Multi-node deployment** — Leader election, shared model cache across nodes. Not started. Requires significant distributed systems work.
-- [x] **Backup and restore for audit logs** — No `maranode audit backup` / `restore` command. The files are plain JSON Lines so `rsync` works, but there is no documented or automated backup procedure.
 - [ ] **Graceful upgrades with no downtime** — No rolling upgrade mechanism. Restarts cause a brief gap. Needs socket activation (systemd) or a sidecar handoff mechanism.
 
 ---
 
 ## Phase 3 — Differentiation (not started)
 
-- [ ] **Remote verification endpoint** — `GET /v1/attestation/report` returns a signed attestation report that a third party can verify without trusting the operator.
-- [ ] **Attestation reports as compliance artifacts** — Tie TPM report into the evidence bundle (Phase 2.3).
+- [x] **Remote verification endpoint** — `GET /v1/attestation/report` returns a signed attestation report that a third party can verify without trusting the operator.
+- [x] **Attestation reports as compliance artifacts** — Tie TPM report into the evidence bundle (Phase 2.3).
 - [ ] **Seal audit HMAC key to TPM PCR** — Architecture says the Phase 3 appliance seals the audit key to a TPM PCR. Without this, an attacker with root can rewrite the audit log undetectably.
 
 - [ ] **Multi-instance coordination without shared data** — Each Maranode instance stays isolated; federated queries route to the right instance without data crossing jurisdictions.
@@ -24,9 +22,9 @@
 
 - [ ] **Code Intelligence** — Code-aware chunking (by function/class rather than character count), syntax-aware search, code Q&A, basic vulnerability pattern scanning.
 - [ ] **Custom fine-tuning workflow** — Fine-tuning pipeline that never sends data to external model trainers. Likely requires `llama.cpp` fine-tuning support or integration with a local fine-tuning tool.
-- [ ] **OCR for scanned PDFs** — Currently scanned image PDFs are rejected. Integration with `ocrmypdf` or a Tesseract binding would make the document pipeline handle real-world PDF archives.
-- [ ] **Table extraction** — Detect and extract tables from PDFs as structured Markdown. The current pipeline extracts plain text only.
-- [ ] **Re-summarize on demand** — API/UI endpoint to regenerate a document summary if the model has changed or the auto-summary was skipped at ingest time.
+- [x] **OCR for scanned PDFs** — Currently scanned image PDFs are rejected. Integration with `ocrmypdf` or a Tesseract binding would make the document pipeline handle real-world PDF archives.
+- [x] **Table extraction** — Detect and extract tables from PDFs as structured Markdown. The current pipeline extracts plain text only.
+- [x] **Re-summarize on demand** — API/UI endpoint to regenerate a document summary if the model has changed or the auto-summary was skipped at ingest time.
 
 
 

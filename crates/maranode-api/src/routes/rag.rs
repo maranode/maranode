@@ -30,6 +30,7 @@ pub fn router() -> Router<AppState> {
             get(get_document).delete(delete_document),
         )
         .route("/v1/rag/documents/:id/summary", get(get_document_summary))
+        .route("/v1/rag/documents/:id/summarize", post(resummary_document))
         .route("/v1/rag/extract", post(extract_document))
         .route("/v1/rag/collections", get(list_collections))
         .route("/v1/rag/collections/:name", delete(delete_collection))
@@ -387,6 +388,40 @@ async fn get_document_summary(
     Ok(Json(SummaryResp {
         document_id: id,
         summary: doc.summary,
+    }))
+}
+
+async fn resummary_document(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<SummaryResp>> {
+    check_ingest_permission(&headers, &state)?;
+    let rag = require_rag(&state)?;
+
+    rag.get_document(&id)
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("document not found"))?;
+
+    let text = rag
+        .get_document_text(&id)
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("document has no stored chunks"))?;
+
+    let summarizer = make_summarizer(&state)
+        .ok_or_else(|| ApiError::not_implemented("no inference engine available for summarization"))?;
+
+    let summary = summarizer
+        .summarize(&text)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    rag.set_summary(&id, &summary)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    Ok(Json(SummaryResp {
+        document_id: id,
+        summary: Some(summary),
     }))
 }
 
