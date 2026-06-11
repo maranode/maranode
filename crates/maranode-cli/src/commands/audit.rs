@@ -13,6 +13,7 @@ use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::retention::prune_log;
 use maranode_audit::sign;
 use maranode_audit::verify::verify_log;
+use maranode_common::events::{AuditEntry, AuditEvent};
 
 #[derive(Subcommand)]
 pub enum AuditCommand {
@@ -84,6 +85,12 @@ pub enum AuditCommand {
         /// overwrite existing files without prompting
         #[arg(long)]
         force: bool,
+    },
+
+    /// extract signed inference receipt for a given request id
+    Prove {
+        /// request_id from the chat response (X-Request-Id header or receipt field)
+        record_id: String,
     },
 }
 
@@ -271,6 +278,40 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
 
         AuditCommand::Restore { from, force } => {
             restore_audit(data_dir, &from, force)?;
+        }
+
+        AuditCommand::Prove { record_id } => {
+            if !log_path.exists() {
+                anyhow::bail!("no audit log found at {}", log_path.display());
+            }
+
+            let content = std::fs::read_to_string(&log_path)?;
+            let receipt = content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+                .find_map(|entry| {
+                    if let AuditEvent::InferenceReceipt { receipt } = entry.event {
+                        if receipt.request_id == record_id {
+                            return Some(receipt);
+                        }
+                    }
+                    None
+                });
+
+            match receipt {
+                Some(r) => {
+                    println!("{}", serde_json::to_string_pretty(&r)?);
+                }
+                None => {
+                    eprintln!(
+                        "{} No inference receipt found for request id {}",
+                        "✗".red().bold(),
+                        record_id.yellow(),
+                    );
+                    std::process::exit(1);
+                }
+            }
         }
     }
 
