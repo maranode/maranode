@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -10,6 +11,7 @@ use maranode_audit::export::{export_gdpr, export_hipaa, export_iso27001, export_
 use maranode_audit::key::load_or_generate;
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::retention::prune_log;
+use maranode_audit::sign;
 use maranode_audit::verify::verify_log;
 
 #[derive(Subcommand)]
@@ -60,6 +62,28 @@ pub enum AuditCommand {
         /// really delete rows. without flag, only count stale entries
         #[arg(long)]
         confirm: bool,
+    },
+
+    /// create a backup ZIP of all audit log files and keys
+    Backup {
+        /// output ZIP path. default: audit_backup_<timestamp>.zip
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
+        /// also include all workspace audit logs found in <data_dir>/workspaces/
+        #[arg(long)]
+        workspaces: bool,
+    },
+
+    /// restore audit files from a backup ZIP
+    Restore {
+        /// path to backup ZIP created by `maranode audit backup`
+        #[arg(long, short)]
+        from: PathBuf,
+
+        /// overwrite existing files without prompting
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -181,7 +205,8 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
                 return Ok(());
             }
             let dest = output.unwrap_or_else(|| PathBuf::from("audit_bundle.zip"));
-            create_bundle(&log_path, &key_path, &dest, None)?;
+            let signing_key = sign::load_or_create(data_dir).ok();
+            create_bundle(&log_path, &key_path, &dest, None, signing_key.as_ref())?;
             let size = std::fs::metadata(&dest)?.len();
             println!(
                 "{} Bundle created ({} bytes) → {}",
@@ -200,7 +225,6 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
                 return Ok(());
             }
             if !confirm {
-                // dry run: count old entries only
                 let cutoff = chrono::Utc::now() - chrono::Duration::days(retain_days as i64);
                 let content = std::fs::read_to_string(&log_path)?;
                 let stale = content
@@ -230,6 +254,149 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path) -> Result<()> {
                 pruned.to_string().yellow(),
                 retain_days,
             );
+        }
+
+        AuditCommand::Backup { output, workspaces } => {
+            let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+            let dest = output.unwrap_or_else(|| PathBuf::from(format!("audit_backup_{}.zip", ts)));
+            backup_audit(data_dir, &dest, workspaces)?;
+            let size = std::fs::metadata(&dest)?.len();
+            println!(
+                "{} Backup written ({} bytes) → {}",
+                "✓".green().bold(),
+                size,
+                dest.display(),
+            );
+        }
+
+        AuditCommand::Restore { from, force } => {
+            restore_audit(data_dir, &from, force)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn backup_audit(data_dir: &Path, dest: &Path, include_workspaces: bool) -> Result<()> {
+    use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+    let f = std::fs::File::create(dest)?;
+    let mut zip = ZipWriter::new(f);
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    let add = |zip: &mut ZipWriter<std::fs::File>, name: &str, path: &Path| -> Result<()> {
+        if path.exists() {
+            zip.start_file(name, opts)?;
+            zip.write_all(&std::fs::read(path)?)?;
+        }
+        Ok(())
+    };
+
+    add(&mut zip, "audit.jsonl", &default_log_path(data_dir))?;
+    add(&mut zip, "audit.key", &default_key_path(data_dir))?;
+    add(
+        &mut zip,
+        "bundle_signing.key",
+        &sign::signing_key_path(data_dir),
+    )?;
+    add(
+        &mut zip,
+        "bundle_signing.pub",
+        &sign::verifying_key_path(data_dir),
+    )?;
+
+    if include_workspaces {
+        let ws_root = data_dir.join("workspaces");
+        if ws_root.is_dir() {
+            for entry in std::fs::read_dir(&ws_root)? {
+                let entry = entry?;
+                if !entry.file_type()?.is_dir() {
+                    continue;
+                }
+                let slug = entry.file_name().to_string_lossy().to_string();
+                let ws_dir = ws_root.join(&slug);
+                add(
+                    &mut zip,
+                    &format!("workspaces/{}/audit.jsonl", slug),
+                    &default_log_path(&ws_dir),
+                )?;
+                add(
+                    &mut zip,
+                    &format!("workspaces/{}/audit.key", slug),
+                    &default_key_path(&ws_dir),
+                )?;
+            }
+        }
+    }
+
+    zip.finish()?;
+    Ok(())
+}
+
+fn restore_audit(data_dir: &Path, src: &Path, force: bool) -> Result<()> {
+    use std::io::Read;
+    use zip::ZipArchive;
+
+    let f = std::fs::File::open(src)?;
+    let mut archive = ZipArchive::new(f)?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        let dest = data_dir.join(&name);
+
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        if dest.exists() && !force {
+            anyhow::bail!(
+                "{} already exists; use --force to overwrite",
+                dest.display()
+            );
+        }
+
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+
+        {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            if name.ends_with(".key") {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    opts.mode(0o600);
+                }
+            }
+            let mut out = opts.open(&dest)?;
+            out.write_all(&buf)?;
+        }
+
+        println!("{} Restored → {}", "✓".green().bold(), dest.display());
+    }
+
+    let log_path = default_log_path(data_dir);
+    if log_path.exists() {
+        let key_path = default_key_path(data_dir);
+        let key = load_or_generate(&key_path)?;
+        let result = verify_log(&log_path, &key)?;
+        if result.ok {
+            println!(
+                "{} Integrity check {} ({} entries).",
+                "✓".green().bold(),
+                "passed".green().bold(),
+                result.entries_checked,
+            );
+        } else {
+            eprintln!(
+                "{} Integrity check {} after restore!",
+                "✗".red().bold(),
+                "FAILED".red().bold(),
+            );
+            if let Some(v) = result.first_violation {
+                eprintln!("  seq {}: {}", v.seq, v.detail);
+            }
         }
     }
 

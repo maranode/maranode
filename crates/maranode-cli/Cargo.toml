@@ -30,3 +30,4 @@ futures-util = "0.3"
 indicatif    = { workspace = true }
 colored      = { workspace = true }
 rpassword    = { workspace = true }
+zip          = { workspace = true }
