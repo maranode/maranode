@@ -1,21 +1,8 @@
-- [x] **Model memory pressure eviction** — Architecture says the daemon evicts loaded models under memory pressure. Currently models are loaded on demand but never evicted until restart.
-- [x] **Docker image** — Roadmap says "single binary distribution (no Docker required, but Docker image also published)". No Dockerfile exists yet.
 - [ ] **Install script hosted at `get.maranode.com`** — The `install.sh` script exists in `scripts/` but needs to be deployed to the domain.
-- [x] **Content logging opt-in flag** — Architecture mentions operators can enable full prompt logging with an explicit flag and retention controls. Only the hashed prompt is logged today; there is no `--log-prompts` option.
-
-
-- [x] **`dnf` (RPM) package repository** — apt repo exists; dnf/yum is not yet published.
-- [x] **`pacman` (Arch) package** — Not published.
-
 
 ## Phase 2 — Commercial Foundation (remaining)
 
-- [x] **LDAP `ldap3` integration compile-time gate** — `ldap3` is in deps but it pulls in native OpenSSL which may conflict with `rustls`. Should be a feature flag.
-- [x] **OIDC PKCE verifier + nonce server-side storage** — The OIDC callback currently skips nonce and PKCE verifier validation (noted in comment). A short-lived in-memory or SQLite-backed cache is needed to properly validate callbacks.
-- [x] **SAML signature verification** — The pure-Rust SAML implementation parses the assertion but does not verify the IdP's XML signature. This is a security gap for production use — needs `xmlsec1` or an alternative approach.
-- [x] **Password reset flow** — No self-service or admin-triggered password reset email. Admins can set a new password via API but there is no notification mechanism.
-
-- [ ] **Retention policy enforcement on schedule** — `prune_log` exists and is callable via API/CLI/UI, but there is no automated scheduler that runs it on a cron-like basis. Retention should be enforceable as a policy, not just a manual operation.
+- [x] **Retention policy enforcement on schedule** — `prune_log` exists and is callable via API/CLI/UI, but there is no automated scheduler that runs it on a cron-like basis. Retention should be enforceable as a policy, not just a manual operation.
 - [ ] **Signed evidence bundles** — The ZIP bundle contains integrity data but the bundle itself is not cryptographically signed. Phase 2.3 roadmap says "cryptographically signed, timestamped." Needs cosign or a PGP/minisign step.
 
 - [ ] **Multi-node deployment** — Leader election, shared model cache across nodes. Not started. Requires significant distributed systems work.

@@ -398,6 +398,8 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     spawn_sighup_reload(reload_services.clone());
 
+    spawn_retention_scheduler(state.clone());
+
     let router = build_router(state).merge(admin::router(reload_services));
 
     info!("Listening on http://{}", cfg.bind);
@@ -464,6 +466,46 @@ async fn main() -> Result<()> {
 
     info!("maranoded stopped");
     Ok(())
+}
+
+fn spawn_retention_scheduler(state: maranode_api::AppState) {
+    tokio::spawn(async move {
+        use maranode_audit::retention::prune_log;
+        use maranode_audit::log::default_log_path;
+        use tokio::time::{interval, Duration};
+
+        let mut ticker = interval(Duration::from_secs(12 * 60 * 60));
+        ticker.tick().await; // skip the immediate first tick
+
+        loop {
+            ticker.tick().await;
+            let rt = state.rt();
+            let retain_days = rt.content_log_retention_days;
+            if retain_days == 0 {
+                continue;
+            }
+
+            let main_log = default_log_path(&state.data_dir);
+            match prune_log(&main_log, retain_days) {
+                Ok(n) if n > 0 => tracing::info!("retention: pruned {} entries from main audit log", n),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("retention: prune main log failed: {e}"),
+            }
+
+            let ws_audits = state.workspace_audits.lock().await;
+            let ws_slugs: Vec<String> = ws_audits.keys().cloned().collect();
+            drop(ws_audits);
+
+            for slug in ws_slugs {
+                let ws_log = default_log_path(&state.data_dir.join("workspaces").join(&slug));
+                match prune_log(&ws_log, retain_days) {
+                    Ok(n) if n > 0 => tracing::info!("retention: pruned {} entries from workspace {}", n, slug),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("retention: prune workspace {} failed: {e}", slug),
+                }
+            }
+        }
+    });
 }
 
 #[cfg(unix)]
