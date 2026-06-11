@@ -1,0 +1,40 @@
+{
+  "index_patterns": ["maranode-audit-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1
+    },
+    "mappings": {
+      "dynamic": "false",
+      "properties": {
+        "@timestamp":          { "type": "date" },
+        "event.kind":          { "type": "keyword" },
+        "event.category":      { "type": "keyword" },
+        "event.type":          { "type": "keyword" },
+        "event.action":        { "type": "keyword" },
+        "event.outcome":       { "type": "keyword" },
+        "event.sequence":      { "type": "long" },
+        "event.provider":      { "type": "keyword" },
+        "event.dataset":       { "type": "keyword" },
+        "host.hostname":       { "type": "keyword" },
+        "user.name":           { "type": "keyword" },
+        "log.level":           { "type": "keyword" },
+        "maranode.request_id":     { "type": "keyword" },
+        "maranode.model":          { "type": "keyword" },
+        "maranode.prompt_sha256":  { "type": "keyword" },
+        "maranode.output_sha256":  { "type": "keyword" },
+        "maranode.tokens_in":      { "type": "long" },
+        "maranode.tokens_out":     { "type": "long" },
+        "maranode.duration_ms":    { "type": "long" },
+        "maranode.collection":     { "type": "keyword" },
+        "maranode.workspace_slug": { "type": "keyword" },
+        "maranode.isolated":       { "type": "boolean" },
+        "maranode.iptables_hash":  { "type": "keyword" },
+        "maranode.binary_sha256":  { "type": "keyword" },
+        "maranode.tpm_available":  { "type": "boolean" },
+        "maranode.hmac":           { "type": "keyword" }
+      }
+    }
+  }
+}

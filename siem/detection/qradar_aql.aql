@@ -1,0 +1,61 @@
+-- ============================================================
+-- Maranode detection rules for IBM QRadar (AQL)
+-- log source: Maranode LEEF (LEEF:2.0|Maranode|maranode-daemon|...)
+-- ============================================================
+
+-- 1. Air-gap isolation broken
+SELECT
+  DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss') AS event_time,
+  sourceip,
+  username,
+  DECODE(eventtype, '') AS event_action,
+  "isolated",
+  auditseq
+FROM events
+WHERE LOGSOURCENAME(logsourceid) ILIKE '%maranode%'
+  AND eventtype = 'IsolationProbe'
+  AND "isolated" = 'false'
+ORDER BY starttime DESC
+LAST 24 HOURS
+
+
+-- 2. Workspace crypto-shred
+SELECT
+  DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss') AS event_time,
+  sourceip,
+  username,
+  "resourceid" AS workspace_slug,
+  auditseq
+FROM events
+WHERE LOGSOURCENAME(logsourceid) ILIKE '%maranode%'
+  AND eventtype = 'WorkspaceShredded'
+ORDER BY starttime DESC
+LAST 30 DAYS
+
+
+-- 3. Inference failure rate (grouped by 5-minute bucket)
+SELECT
+  DATEFORMAT(ROUND(starttime / 300000) * 300000, 'yyyy-MM-dd HH:mm:ss') AS window_start,
+  sourceip,
+  COUNT(*) AS failure_count
+FROM events
+WHERE LOGSOURCENAME(logsourceid) ILIKE '%maranode%'
+  AND eventtype = 'InferenceFailed'
+GROUP BY window_start, sourceip
+HAVING COUNT(*) > 5
+ORDER BY failure_count DESC
+LAST 24 HOURS
+
+
+-- 4. Model imported outside 08:00–18:00 UTC
+SELECT
+  DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss') AS event_time,
+  sourceip,
+  username,
+  auditseq
+FROM events
+WHERE LOGSOURCENAME(logsourceid) ILIKE '%maranode%'
+  AND eventtype = 'ModelImported'
+  AND (EXTRACT(HOUR FROM starttime) < 8 OR EXTRACT(HOUR FROM starttime) >= 18)
+ORDER BY starttime DESC
+LAST 7 DAYS

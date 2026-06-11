@@ -1,0 +1,64 @@
+-- ============================================================
+-- Maranode detection rules for Splunk (SPL)
+-- sourcetype: maranode_cef
+-- ============================================================
+
+-- 1. Air-gap isolation broken
+-- fires when any probe reports egress
+index=* sourcetype=maranode_cef sig_id=MRN-011 outcome=failure
+| eval _time = rt / 1000
+| eval hosts_reachable = mvfilter(match(probe_results, "reachable=true"))
+| table _time, src, auditSeq, hosts_reachable, cs3
+| sort -_time
+
+
+-- 2. Inference refused due to isolation drift
+-- the daemon logs service_unavailable when fail-closed kicks in; watch for HTTP 503 in access log
+-- combined with a prior MRN-011 failure event within 5 minutes
+index=* sourcetype=maranode_cef sig_id=MRN-011 outcome=failure
+| eval drift_time = rt / 1000
+| join type=inner src [
+    search index=* sourcetype=access_combined status=503 uri="/v1/chat/completions"
+    | rename clientip AS src
+    | eval request_time = _time
+  ]
+| where abs(request_time - drift_time) < 300
+| table drift_time, src, auditSeq
+
+
+-- 3. High inference failure rate (>5 failures in 5 minutes per workspace)
+index=* sourcetype=maranode_cef sig_id=MRN-032
+| bin _time span=5m
+| stats count by _time, src
+| where count > 5
+| sort -count
+
+
+-- 4. Workspace crypto-shred (compliance alert)
+index=* sourcetype=maranode_cef sig_id=MRN-050
+| eval _time = rt / 1000
+| table _time, src, fname, auditSeq
+| sort -_time
+
+
+-- 5. Audit chain integrity violation
+-- maranode audit verify writes AuditVerified{ok: false} on failure
+index=* sourcetype=maranode_cef sig_id=MRN-070
+| search extensions="*outcome=failure*"
+| eval _time = rt / 1000
+| table _time, src, auditSeq
+
+
+-- 6. Binary hash change (unexpected executable swap)
+index=* sourcetype=maranode_cef sig_id=MRN-080
+| stats dc(fileHash) AS distinct_hashes by src
+| where distinct_hashes > 1
+| table src, distinct_hashes
+
+
+-- 7. Model import outside business hours (UTC 08–18)
+index=* sourcetype=maranode_cef sig_id=MRN-020
+| eval _time = rt / 1000
+| eval hour = strftime(_time, "%H")
+| where hour < 8 OR hour >= 18
+| table _time, src, fileHash, auditSeq

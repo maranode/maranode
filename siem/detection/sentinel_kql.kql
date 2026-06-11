@@ -1,0 +1,56 @@
+// ============================================================
+// Maranode detection rules for Microsoft Sentinel (KQL)
+// Data connector: Syslog (CEF) — table: CommonSecurityLog
+// DeviceVendor == "Maranode"
+// ============================================================
+
+// 1. Air-gap isolation broken
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-011"
+| where AdditionalExtensions has "outcome=failure"
+| project TimeGenerated, Computer, DeviceEventClassID, Activity,
+          AdditionalExtensions, DeviceCustomNumber1 // auditSeq
+
+
+// 2. Workspace crypto-shred alert
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-050"
+| project TimeGenerated, Computer, FileName, DeviceCustomNumber1, SourceUserID
+
+
+// 3. Inference failure spike (>5 per 5 minutes)
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-032"
+| summarize FailureCount = count() by bin(TimeGenerated, 5m), Computer
+| where FailureCount > 5
+| project TimeGenerated, Computer, FailureCount
+
+
+// 4. Audit chain integrity failure
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-070"
+| where AdditionalExtensions has "outcome=failure"
+| project TimeGenerated, Computer, AdditionalExtensions, DeviceCustomNumber1
+
+
+// 5. Binary hash changed between daemon restarts
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-080"
+| summarize Hashes = make_set(FileHash) by Computer
+| where array_length(Hashes) > 1
+| project Computer, Hashes
+
+
+// 6. Isolation probe stops arriving (silence detection — 15 min gap)
+// expects probes every ~5 min when air_gap is active
+CommonSecurityLog
+| where DeviceVendor == "Maranode"
+| where DeviceEventClassID == "MRN-011"
+| summarize LastProbe = max(TimeGenerated) by Computer
+| where LastProbe < ago(15m)
+| project Computer, LastProbe, GapMinutes = datetime_diff('minute', now(), LastProbe)

@@ -1,0 +1,26 @@
+filebeat.inputs:
+  - type: filestream
+    id: maranode-audit
+    paths:
+      - /var/lib/maranode/audit.jsonl
+    parsers:
+      - ndjson:
+          keys_under_root: true
+          overwrite_keys: false
+          add_error_key: true
+
+processors:
+  - add_host_metadata: ~
+  - pipeline:
+      name: maranode-audit-ecs
+      ignore_missing_pipeline: false
+
+output.elasticsearch:
+  hosts: ["https://elasticsearch:9200"]
+  index: "maranode-audit-%{+yyyy.MM.dd}"
+  username: "${ELASTIC_USER}"
+  password: "${ELASTIC_PASSWORD}"
+  ssl.certificate_authorities: ["/etc/filebeat/ca.crt"]
+
+setup.template.enabled: false
+setup.ilm.enabled: false

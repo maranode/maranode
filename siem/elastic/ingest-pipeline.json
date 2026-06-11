@@ -1,0 +1,132 @@
+{
+  "description": "Maranode audit JSONL → Elastic Common Schema",
+  "processors": [
+    {
+      "date": {
+        "field": "ts",
+        "formats": ["ISO8601"],
+        "target_field": "@timestamp",
+        "ignore_failure": false
+      }
+    },
+    {
+      "rename": { "field": "seq",   "target_field": "event.sequence",  "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "actor", "target_field": "user.name",       "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "hmac",  "target_field": "maranode.hmac",   "ignore_missing": true }
+    },
+    {
+      "set": { "field": "event.provider", "value": "maranode-daemon" }
+    },
+    {
+      "set": { "field": "event.dataset",  "value": "maranode.audit" }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "description": "Map maranode event type → ECS event fields",
+        "source": "
+          String evType = ctx.event;
+          if (evType == null) evType = 'unknown';
+          ctx['event.action'] = evType;
+
+          Map kindMap = [
+            'inference_start':       'start',
+            'inference_complete':    'end',
+            'inference_failed':      'end',
+            'daemon_start':          'start',
+            'daemon_stop':           'end',
+            'model_imported':        'creation',
+            'model_removed':         'deletion',
+            'workspace_shredded':    'deletion',
+            'isolation_probe':       'info',
+            'isolation_applied':     'change',
+            'rag_document_ingested': 'creation',
+            'rag_retrieval':         'access',
+            'audit_verified':        'info',
+            'binary_attested':       'info',
+            'config_reloaded':       'change'
+          ];
+          ctx['event.type'] = kindMap.getOrDefault(evType, 'info');
+
+          Map catMap = [
+            'inference_start':       'process',
+            'inference_complete':    'process',
+            'inference_failed':      'process',
+            'rag_document_ingested': 'file',
+            'rag_retrieval':         'database',
+            'model_imported':        'file',
+            'model_removed':         'file',
+            'workspace_shredded':    'file',
+            'isolation_probe':       'network',
+            'isolation_applied':     'configuration',
+            'audit_verified':        'iam',
+            'binary_attested':       'host',
+            'daemon_start':          'host',
+            'daemon_stop':           'host',
+            'config_reloaded':       'configuration'
+          ];
+          ctx['event.category'] = catMap.getOrDefault(evType, 'configuration');
+          ctx['event.kind'] = 'event';
+        "
+      }
+    },
+    {
+      "rename": { "field": "request_id",   "target_field": "maranode.request_id",     "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "prompt_sha256", "target_field": "maranode.prompt_sha256",  "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "tokens_in",    "target_field": "maranode.tokens_in",       "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "tokens_out",   "target_field": "maranode.tokens_out",      "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "duration_ms",  "target_field": "maranode.duration_ms",     "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "isolated",     "target_field": "maranode.isolated",        "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "iptables_hash","target_field": "maranode.iptables_hash",   "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "slug",         "target_field": "maranode.workspace_slug",  "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "binary_sha256","target_field": "maranode.binary_sha256",   "ignore_missing": true }
+    },
+    {
+      "rename": { "field": "tpm_available","target_field": "maranode.tpm_available",   "ignore_missing": true }
+    },
+    {
+      "set": {
+        "if": "ctx?.maranode?.isolated != null && ctx.maranode.isolated == false",
+        "field": "event.outcome",
+        "value": "failure"
+      }
+    },
+    {
+      "set": {
+        "if": "ctx?.event?.action == 'inference_failed'",
+        "field": "event.outcome",
+        "value": "failure"
+      }
+    },
+    {
+      "set": {
+        "if": "ctx?.event?.outcome == null",
+        "field": "event.outcome",
+        "value": "success"
+      }
+    },
+    {
+      "remove": { "field": ["ts", "prev_hmac", "event"], "ignore_missing": true }
+    }
+  ]
+}

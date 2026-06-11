@@ -7,7 +7,9 @@ use colored::Colorize;
 
 use crate::errors::did_you_mean;
 use maranode_audit::bundle::create_bundle;
-use maranode_audit::export::{export_gdpr, export_hipaa, export_iso27001, export_soc2, ExportFilter};
+use maranode_audit::export::{
+    export_cef, export_gdpr, export_hipaa, export_iso27001, export_leef, export_soc2, ExportFilter,
+};
 use maranode_audit::key::load_or_generate;
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::retention::prune_log;
@@ -115,6 +117,25 @@ pub enum AuditCommand {
         output: Option<PathBuf>,
     },
 
+    /// forward audit log to a SIEM over syslog (CEF over TCP/UDP RFC 5424)
+    Forward {
+        /// syslog destination, e.g. siem.corp.local:514 or 10.0.0.5:6514
+        #[arg(long)]
+        target: String,
+
+        /// transport: tcp or udp (default: tcp)
+        #[arg(long, default_value = "tcp")]
+        transport: String,
+
+        /// start time in RFC 3339; only forward events after this time
+        #[arg(long)]
+        from: Option<String>,
+
+        /// end time in RFC 3339
+        #[arg(long)]
+        to: Option<String>,
+    },
+
     /// show isolation probe timeline from the audit log
     IsolationReport {
         /// start time in RFC 3339, e.g. 2024-01-01T00:00:00Z
@@ -213,12 +234,14 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
                     .map(|d| d.with_timezone(&chrono::Utc)),
             };
 
-            const FORMATS: &[&str] = &["gdpr", "hipaa", "soc2", "iso27001"];
-            let csv = match format.as_str() {
-                "gdpr" => export_gdpr(&log_path, &filter)?,
-                "hipaa" => export_hipaa(&log_path, &filter)?,
-                "soc2" => export_soc2(&log_path, &filter)?,
-                "iso27001" => export_iso27001(&log_path, &filter)?,
+            const FORMATS: &[&str] = &["gdpr", "hipaa", "soc2", "iso27001", "cef", "leef"];
+            let (body, ext) = match format.as_str() {
+                "gdpr"     => (export_gdpr(&log_path, &filter)?,     "csv"),
+                "hipaa"    => (export_hipaa(&log_path, &filter)?,    "csv"),
+                "soc2"     => (export_soc2(&log_path, &filter)?,     "csv"),
+                "iso27001" => (export_iso27001(&log_path, &filter)?, "csv"),
+                "cef"      => (export_cef(&log_path, &filter)?,      "cef"),
+                "leef"     => (export_leef(&log_path, &filter)?,     "leef"),
                 other => {
                     let hint = did_you_mean(other, FORMATS)
                         .map(|s| format!("  Did you mean {}?", s.cyan()))
@@ -232,13 +255,13 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
                 }
             };
 
-            let dest = output.unwrap_or_else(|| PathBuf::from(format!("audit_{}.csv", format)));
-            std::fs::write(&dest, &csv)?;
+            let dest = output.unwrap_or_else(|| PathBuf::from(format!("audit_{}.{}", format, ext)));
+            std::fs::write(&dest, &body)?;
             println!(
                 "{} Exported {} ({} bytes) → {}",
                 "✓".green().bold(),
                 format.cyan(),
-                csv.len(),
+                body.len(),
                 dest.display(),
             );
         }
@@ -361,6 +384,26 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
 
         AuditCommand::VerifySources { record_id } => {
             verify_sources(&log_path, &record_id, data_dir)?;
+        }
+
+        AuditCommand::Forward {
+            target,
+            transport,
+            from,
+            to,
+        } => {
+            let filter = ExportFilter {
+                workspace: None,
+                from: from
+                    .as_deref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&chrono::Utc)),
+                to: to
+                    .as_deref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&chrono::Utc)),
+            };
+            forward_syslog(&log_path, &filter, &target, &transport)?;
         }
 
         AuditCommand::IsolationReport {
@@ -652,6 +695,83 @@ fn export_deletion_cert(log_path: &Path, slug: &str, output: Option<&Path>) -> R
     );
 
     Ok(())
+}
+
+fn forward_syslog(
+    log_path: &Path,
+    filter: &ExportFilter,
+    target: &str,
+    transport: &str,
+) -> Result<()> {
+    use std::io::Write as IoWrite;
+    use std::net::{TcpStream, UdpSocket};
+
+    if !log_path.exists() {
+        println!("{} No audit log found.", "·".dimmed());
+        return Ok(());
+    }
+
+    let cef_body = export_cef(log_path, filter)?;
+    let lines: Vec<&str> = cef_body.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    if lines.is_empty() {
+        println!("{} No events to forward.", "·".dimmed());
+        return Ok(());
+    }
+
+    let hostname = hostname_or_unknown();
+    let mut sent = 0usize;
+
+    match transport {
+        "udp" => {
+            let sock = UdpSocket::bind("0.0.0.0:0")?;
+            for line in &lines {
+                // RFC 5424 syslog header, facility=1 (user), severity=6 (informational)
+                let msg = format!(
+                    "<14>1 {} {} maranode - - - {}\n",
+                    chrono::Utc::now().to_rfc3339(),
+                    hostname,
+                    line,
+                );
+                sock.send_to(msg.as_bytes(), target)?;
+                sent += 1;
+            }
+        }
+        _ => {
+            let mut stream = TcpStream::connect(target)
+                .map_err(|e| anyhow::anyhow!("cannot connect to {}: {}", target, e))?;
+            for line in &lines {
+                let msg = format!(
+                    "<14>1 {} {} maranode - - - {}\n",
+                    chrono::Utc::now().to_rfc3339(),
+                    hostname,
+                    line,
+                );
+                stream.write_all(msg.as_bytes())?;
+                sent += 1;
+            }
+        }
+    }
+
+    println!(
+        "{} Forwarded {} event(s) to {} via {}",
+        "✓".green().bold(),
+        sent.to_string().yellow(),
+        target.cyan(),
+        transport,
+    );
+
+    Ok(())
+}
+
+fn hostname_or_unknown() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn isolation_report(
