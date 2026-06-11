@@ -3,6 +3,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use clap::Subcommand;
 
+use maranode_audit::AuditLog;
+use maranode_audit::log::{default_key_path, default_log_path};
+use maranode_common::events::AuditEvent;
 use maranode_store::{kek, WorkspaceDb};
 
 #[derive(Subcommand)]
@@ -35,8 +38,7 @@ fn shred(data_dir: &Path, slug: &str, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    let kek_path = kek::default_kek_path(data_dir);
-    let master_key = kek::load_or_create(&kek_path)
+    let master_key = kek::load_or_create(&kek::default_kek_path(data_dir))
         .context("loading master KEK")?;
 
     let ws_db_path = data_dir.join("workspaces.db");
@@ -46,11 +48,36 @@ fn shred(data_dir: &Path, slug: &str, yes: bool) -> Result<()> {
     let found = db.destroy_dek(slug)
         .with_context(|| format!("destroying DEK for workspace '{}'", slug))?;
 
-    if found {
-        println!("workspace '{}': DEK destroyed. encrypted data is now unreadable.", slug);
-    } else {
+    if !found {
         anyhow::bail!("workspace '{}' not found", slug);
     }
+
+    let statement = format!(
+        "the encryption key (DEK) for workspace '{}' has been permanently destroyed. \
+         all data encrypted under this key is now cryptographically unreadable. \
+         this action cannot be reversed.",
+        slug
+    );
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async {
+        let audit = AuditLog::open(&default_log_path(data_dir), &default_key_path(data_dir))?;
+        audit
+            .append(
+                "cli",
+                AuditEvent::WorkspaceShredded {
+                    slug: slug.to_string(),
+                    actor: "cli".to_string(),
+                    statement: statement.clone(),
+                },
+            )
+            .await
+    })?;
+
+    println!("{}", statement);
+    println!("deletion certificate written to audit log.");
 
     Ok(())
 }

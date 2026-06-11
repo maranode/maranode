@@ -74,6 +74,12 @@ pub enum AuditEvent {
         hits: usize,
     },
 
+    WorkspaceShredded {
+        slug: String,
+        actor: String,
+        statement: String,
+    },
+
     ConfigReloaded {
         path: String,
     },

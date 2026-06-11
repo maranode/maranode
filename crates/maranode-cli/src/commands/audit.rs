@@ -98,6 +98,16 @@ pub enum AuditCommand {
         /// request_id to replay
         record_id: String,
     },
+
+    /// export the deletion certificate for a shredded workspace
+    ExportCert {
+        /// workspace slug (e.g. "default")
+        workspace: String,
+
+        /// output file path. default: deletion_cert_<workspace>.txt
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
 }
 
 pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
@@ -323,6 +333,10 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
         AuditCommand::Replay { record_id } => {
             replay_inference(&log_path, &record_id, host).await?;
         }
+
+        AuditCommand::ExportCert { workspace, output } => {
+            export_deletion_cert(&log_path, &workspace, output.as_deref())?;
+        }
     }
 
     Ok(())
@@ -450,6 +464,66 @@ fn restore_audit(data_dir: &Path, src: &Path, force: bool) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn export_deletion_cert(log_path: &Path, slug: &str, output: Option<&Path>) -> Result<()> {
+    if !log_path.exists() {
+        anyhow::bail!("no audit log found at {}", log_path.display());
+    }
+
+    let content = std::fs::read_to_string(log_path)?;
+
+    let entry = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<AuditEntry>(l).ok())
+        .find(|e| {
+            matches!(&e.event, AuditEvent::WorkspaceShredded { slug: s, .. } if s == slug)
+        });
+
+    let entry = entry.ok_or_else(|| {
+        anyhow::anyhow!(
+            "no deletion certificate found for workspace '{}'. \
+             run `maranode workspace shred {} --yes` first.",
+            slug, slug
+        )
+    })?;
+
+    let AuditEvent::WorkspaceShredded { slug: _, actor, statement } = &entry.event else {
+        unreachable!()
+    };
+
+    let text = format!(
+        "DELETION CERTIFICATE\n\
+         ====================\n\n\
+         workspace : {}\n\
+         timestamp : {}\n\
+         audit seq : {}\n\
+         actor     : {}\n\
+         hmac      : {}\n\n\
+         statement :\n  {}\n\n\
+         This certificate is derived from an HMAC-chained audit log entry.\n\
+         verify integrity with: maranode audit verify\n",
+        slug,
+        entry.ts.to_rfc3339(),
+        entry.seq,
+        actor,
+        entry.hmac,
+        statement,
+    );
+
+    let dest = output
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(format!("deletion_cert_{}.txt", slug)));
+
+    std::fs::write(&dest, &text)?;
+    println!(
+        "{} Deletion certificate exported → {}",
+        "✓".green().bold(),
+        dest.display(),
+    );
 
     Ok(())
 }
