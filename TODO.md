@@ -30,7 +30,7 @@
 
 ## Cross-cutting / technical debt
 
-- [ ] **Token count estimation** — The context overflow guard in `chat.rs` uses `chars ÷ 3.5 ≈ tokens` heuristic. A proper tokenizer (or llama.cpp's `llama_tokenize`) would give exact counts and allow setting `max_tokens` based on the actual model context window.
+- [x] **Token count estimation** — The context overflow guard in `chat.rs` uses `chars ÷ 3.5 ≈ tokens` heuristic. A proper tokenizer (or llama.cpp's `llama_tokenize`) would give exact counts and allow setting `max_tokens` based on the actual model context window.
 - [ ] **Integration tests for auth flows** — OIDC/LDAP/SAML tests require external infrastructure; unit tests with mocks are missing.
 - [ ] **API rate limiting per IP** — The rate limiter is per-workspace. There is no per-IP rate limiting for the auth endpoints, making brute-force attacks on `/v1/auth/login` possible.
 - [ ] **TLS support** — The daemon listens on plain HTTP. Architecture doc says operators use a reverse proxy, but there should be a `--tls-cert` / `--tls-key` option for deployments without a proxy.

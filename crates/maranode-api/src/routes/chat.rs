@@ -350,12 +350,20 @@ async fn run(
         )
         .await;
 
-    // llama.cpp fails when prompt is longer than n_ctx; cut system message as temporary fix
-    const MAX_PROMPT_CHARS: usize = 6000;
+    // reserve ~512 tokens for the completion; use model context window when available
+    // chars-per-token ratio ~3.5 is a reasonable heuristic for most western-language models
+    let max_prompt_chars: usize = manifest
+        .context_length
+        .map(|ctx| {
+            let prompt_tokens = ctx.saturating_sub(512) as usize;
+            (prompt_tokens as f64 * 3.5) as usize
+        })
+        .unwrap_or(6000);
+
     let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
-    if total_chars > MAX_PROMPT_CHARS {
+    if total_chars > max_prompt_chars {
         let rest_chars: usize = messages.iter().skip(1).map(|m| m.content.len()).sum();
-        let budget = MAX_PROMPT_CHARS.saturating_sub(rest_chars).max(200);
+        let budget = max_prompt_chars.saturating_sub(rest_chars).max(200);
         if let Some(sys) = messages.first_mut() {
             if sys.role == ChatRole::System && sys.content.len() > budget {
                 sys.content = sys.content.chars().take(budget).collect();
