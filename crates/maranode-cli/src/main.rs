@@ -82,6 +82,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::workspace::WorkspaceCommand,
     },
+    /// model behavioral baseline: create, sign, verify, fetch, check
+    Baseline {
+        #[command(subcommand)]
+        action: commands::baseline::BaselineCommand,
+    },
 }
 
 #[tokio::main]
@@ -142,6 +147,9 @@ async fn run() -> Result<()> {
         }
         Commands::Workspace { action } => {
             commands::workspace::run(action, &data_dir)?;
+        }
+        Commands::Baseline { action } => {
+            commands::baseline::run(action, &data_dir, &cli.host).await?;
         }
     }
 

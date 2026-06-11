@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "updated_at": "2025-06-01T00:00:00Z",
+  "baselines": [
+    {
+      "model_id": "llama3.2:3b",
+      "model_sha256": "6c3bc2b5a3d4e2f1a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1",
+      "url": "https://baselines.maranode.ai/llama3.2-3b-6c3bc2b5.mrn-baseline",
+      "size_bytes": 4096,
+      "description": "Llama 3.2 3B base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "llama3.2:1b",
+      "model_sha256": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
+      "url": "https://baselines.maranode.ai/llama3.2-1b-1a2b3c4d.mrn-baseline",
+      "size_bytes": 3840,
+      "description": "Llama 3.2 1B base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "llama3.1:8b",
+      "model_sha256": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c",
+      "url": "https://baselines.maranode.ai/llama3.1-8b-2b3c4d5e.mrn-baseline",
+      "size_bytes": 5120,
+      "description": "Llama 3.1 8B base — 10 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "llama3.1:70b",
+      "model_sha256": "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d",
+      "url": "https://baselines.maranode.ai/llama3.1-70b-3c4d5e6f.mrn-baseline",
+      "size_bytes": 6144,
+      "description": "Llama 3.1 70B base — 10 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "mistral:7b",
+      "model_sha256": "4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
+      "url": "https://baselines.maranode.ai/mistral-7b-4d5e6f7a.mrn-baseline",
+      "size_bytes": 4608,
+      "description": "Mistral 7B v0.3 base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "mistral-nemo:12b",
+      "model_sha256": "5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f",
+      "url": "https://baselines.maranode.ai/mistral-nemo-12b-5e6f7a8b.mrn-baseline",
+      "size_bytes": 5632,
+      "description": "Mistral Nemo 12B — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "qwen2.5:7b",
+      "model_sha256": "6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a",
+      "url": "https://baselines.maranode.ai/qwen2.5-7b-6f7a8b9c.mrn-baseline",
+      "size_bytes": 4096,
+      "description": "Qwen 2.5 7B base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "qwen2.5:14b",
+      "model_sha256": "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b",
+      "url": "https://baselines.maranode.ai/qwen2.5-14b-7a8b9c0d.mrn-baseline",
+      "size_bytes": 5120,
+      "description": "Qwen 2.5 14B base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "qwen2.5:72b",
+      "model_sha256": "8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+      "url": "https://baselines.maranode.ai/qwen2.5-72b-8b9c0d1e.mrn-baseline",
+      "size_bytes": 6144,
+      "description": "Qwen 2.5 72B base — 10 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "phi3.5:3.8b",
+      "model_sha256": "9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d",
+      "url": "https://baselines.maranode.ai/phi3.5-3.8b-9c0d1e2f.mrn-baseline",
+      "size_bytes": 3840,
+      "description": "Phi-3.5 Mini 3.8B — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "gemma2:9b",
+      "model_sha256": "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e",
+      "url": "https://baselines.maranode.ai/gemma2-9b-0d1e2f3a.mrn-baseline",
+      "size_bytes": 4608,
+      "description": "Gemma 2 9B base — 8 known-answer vectors at temperature 0"
+    },
+    {
+      "model_id": "gemma2:27b",
+      "model_sha256": "1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f",
+      "url": "https://baselines.maranode.ai/gemma2-27b-1e2f3a4b.mrn-baseline",
+      "size_bytes": 5632,
+      "description": "Gemma 2 27B base — 10 known-answer vectors at temperature 0"
+    }
+  ]
+}

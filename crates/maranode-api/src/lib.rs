@@ -39,6 +39,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::users::router())
         .merge(routes::reset::router())
         .merge(routes::identity::router())
+        .merge(routes::baseline::router())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

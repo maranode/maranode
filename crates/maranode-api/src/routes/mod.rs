@@ -1,5 +1,6 @@
 pub mod attestation;
 pub mod audit;
+pub mod baseline;
 pub mod chat;
 pub mod embeddings;
 pub mod health;

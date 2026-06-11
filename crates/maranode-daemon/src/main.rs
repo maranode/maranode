@@ -1,6 +1,7 @@
 //! maranode daemon binary (maranoded)
 
 mod admin;
+mod baseline_check;
 mod config;
 mod lifecycle;
 mod probe;

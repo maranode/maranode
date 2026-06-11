@@ -29,6 +29,7 @@ pub struct DaemonConfig {
     pub rag: RagConfig,
     pub assistant: AssistantConfig,
     pub logging: LoggingConfig,
+    pub integrity: IntegrityConfig,
     pub smtp: Option<SmtpConfig>,
 }
 
@@ -176,6 +177,41 @@ pub struct SmtpConfig {
 }
 
 fn bool_true() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntegrityConfig {
+    /// where to look for .mrn-baseline files. default: <data_dir>/baselines/
+    pub baselines_dir: Option<PathBuf>,
+
+    /// what to do on behavioral drift: allow, warn, or refuse
+    /// allow: run inference as normal, just log the drift event
+    /// warn: log the event and emit a tracing warning
+    /// refuse: block the model from serving until restarted
+    #[serde(default = "default_drift_action")]
+    pub drift_action: DriftAction,
+}
+
+impl Default for IntegrityConfig {
+    fn default() -> Self {
+        Self {
+            baselines_dir: None,
+            drift_action: DriftAction::Warn,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DriftAction {
+    Allow,
+    Warn,
+    Refuse,
+}
+
+fn default_drift_action() -> DriftAction {
+    DriftAction::Warn
+}
 fn default_ldap_uid() -> String {
     "uid".into()
 }
@@ -276,6 +312,7 @@ impl Default for DaemonConfig {
             rag: RagConfig::default(),
             assistant: AssistantConfig::default(),
             logging: LoggingConfig::default(),
+            integrity: IntegrityConfig::default(),
         }
     }
 }

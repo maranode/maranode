@@ -97,12 +97,25 @@ pub enum AuditEvent {
         ok: bool,
     },
     BinaryAttested {
-        /// SHA-256 hash of running executable.
         binary_sha256: String,
-        /// File path of running executable.
         binary_path: String,
-        /// True if TPM was found and PCR values were read.
         tpm_available: bool,
+    },
+
+    ModelBaselineChecked {
+        model_id: String,
+        model_sha256: String,
+        vectors_run: usize,
+        vectors_passed: usize,
+        vectors_failed: usize,
+        baseline_signer: String,
+    },
+
+    ModelDriftDetected {
+        model_id: String,
+        model_sha256: String,
+        vectors_failed: usize,
+        action_taken: String,
     },
 }
 
