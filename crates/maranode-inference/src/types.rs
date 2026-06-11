@@ -16,6 +16,8 @@ pub struct InferenceRequest {
     pub max_tokens: u32,
     pub stop_sequences: Vec<String>,
     pub stream: bool,
+    pub seed: Option<u64>,
+    pub deterministic: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

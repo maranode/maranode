@@ -78,6 +78,24 @@ fn main() {
         }
     }
 
+    let det_kernels_on = std::env::var("CARGO_FEATURE_DETERMINISTIC_KERNELS").is_ok();
+    if det_kernels_on {
+        let existing = std::env::var("LLAMA_CMAKE_ARGS").unwrap_or_default();
+        if !existing.contains("GGML_DETERMINISTIC") {
+            // append to whatever the user already set
+            let merged = if existing.is_empty() {
+                "-DGGML_DETERMINISTIC=ON".to_string()
+            } else {
+                format!("{existing} -DGGML_DETERMINISTIC=ON")
+            };
+            println!("cargo:rustc-env=LLAMA_CMAKE_ARGS={merged}");
+        }
+        println!("cargo:rustc-cfg=deterministic_kernels");
+    }
+
+    // bake llama-cpp-2 crate version into binary so kernel_build_id() can report it
+    bake_llama_version();
+
     if openvino_on {
         configure_openvino();
     }
@@ -96,6 +114,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENVINO_DIR");
     println!("cargo:rerun-if-env-changed=RYZENAI_INSTALL_PATH");
     println!("cargo:rerun-if-env-changed=LLAMA_CMAKE_ARGS");
+    println!("cargo:rerun-if-changed=../../Cargo.lock");
 }
 
 fn configure_openvino() {
@@ -183,6 +202,38 @@ fn configure_ryzenai() {
              LLAMA_CMAKE_ARGS=\"-DGGML_RYZEN_AI=ON\" cargo build --features ryzenai"
         );
     }
+}
+
+fn bake_llama_version() {
+    // read llama-cpp-2 version from Cargo.lock so kernel_build_id() can report it
+    let lock = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("Cargo.lock"));
+
+    let version = lock
+        .filter(|p| p.exists())
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| {
+            let mut found = false;
+            for line in s.lines() {
+                if line.trim() == "name = "llama-cpp-2"" {
+                    found = true;
+                }
+                if found && line.trim().starts_with("version = ") {
+                    return Some(
+                        line.trim()
+                            .trim_start_matches("version = ")
+                            .trim_matches('"')
+                            .to_string(),
+                    );
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    println!("cargo:rustc-env=LLAMA_CPP_2_VERSION={version}");
 }
 
 fn which(cmd: &str) -> bool {

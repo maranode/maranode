@@ -19,6 +19,11 @@ pub struct ChatCompletionRequest {
     /// when true, a signed proof receipt is included in the response
     #[serde(default)]
     pub with_receipt: bool,
+    /// when true, pins temperature=0 top_k=1 seed=0 for reproducible output
+    #[serde(default)]
+    pub deterministic: bool,
+    /// optional rng seed; passed to the sampler on stochastic runs
+    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

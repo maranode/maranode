@@ -4,6 +4,20 @@ use uuid::Uuid;
 
 pub const RECEIPT_VERSION: u32 = 1;
 
+/// environment snapshot at inference time, so the receipt can be reproduced.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EnvFingerprint {
+    /// llama.cpp build id, e.g. "llama-cpp-2@0.1.146+deterministic"
+    #[serde(default)]
+    pub kernel_build_id: String,
+    /// cpu threads available to the inference process
+    #[serde(default)]
+    pub thread_count: u32,
+    /// device class: cpu, gpu, metal, npu, ryzenai
+    #[serde(default)]
+    pub device_class: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecodeParams {
     pub temperature: Option<f32>,
@@ -40,6 +54,10 @@ pub struct InferenceReceipt {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tpm_pcr: Option<String>,
+
+    /// environment snapshot: kernel build, thread count, device class
+    #[serde(default)]
+    pub env: EnvFingerprint,
 
     /// hex-encoded ed25519 signature over the canonical bytes (see `canonical_bytes`)
     #[serde(skip_serializing_if = "Option::is_none")]

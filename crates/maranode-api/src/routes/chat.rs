@@ -22,7 +22,7 @@ use uuid::Uuid;
 use maranode_audit::{sign as audit_sign, AuditLog};
 use maranode_common::events::AuditEvent;
 use maranode_common::models::{ChatMessage, ChatRole, ModelId};
-use maranode_common::receipt::{DecodeParams, InferenceReceipt, RECEIPT_VERSION};
+use maranode_common::receipt::{DecodeParams, EnvFingerprint, InferenceReceipt, RECEIPT_VERSION};
 use maranode_inference::types::InferenceRequest;
 
 use crate::error::{ApiError, ApiResult};
@@ -373,15 +373,23 @@ async fn run(
         }
     }
 
+    let (eff_temperature, eff_seed) = if req.deterministic {
+        (0.0_f32, Some(0_u64))
+    } else {
+        (req.temperature, req.seed)
+    };
+
     let inference_req = InferenceRequest {
         request_id: request_id.clone(),
         model: model_id.clone(),
         model_path,
         messages,
-        temperature: req.temperature,
+        temperature: eff_temperature,
         max_tokens: req.max_tokens,
         stop_sequences: req.stop.unwrap_or_default(),
         stream: req.stream,
+        seed: eff_seed,
+        deterministic: req.deterministic,
     };
 
     if req.stream {
@@ -496,8 +504,10 @@ async fn run(
         &resp.content,
         resp.tokens_in,
         resp.tokens_out,
-        req.temperature,
+        eff_temperature,
         req.max_tokens,
+        eff_seed,
+        req.deterministic,
     );
 
     if let Some(r) = &receipt {
@@ -545,12 +555,18 @@ fn build_receipt(
     tokens_out: u32,
     temperature: f32,
     max_tokens: u32,
+    seed: Option<u64>,
+    deterministic: bool,
 ) -> Option<InferenceReceipt> {
     let sk = audit_sign::load_or_create(&state.data_dir).ok()?;
     let signing_key_id = hex::encode(sk.verifying_key().to_bytes());
 
     let input_sha256 = InferenceReceipt::hash_messages(messages);
     let output_sha256 = InferenceReceipt::hash_output(output);
+
+    let thread_count = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1);
 
     let mut receipt = InferenceReceipt {
         version: RECEIPT_VERSION,
@@ -564,15 +580,20 @@ fn build_receipt(
         output_sha256,
         decode_params: DecodeParams {
             temperature: Some(temperature),
-            top_k: None,
+            top_k: if deterministic { Some(1) } else { None },
             max_tokens: Some(max_tokens),
-            seed: None,
-            deterministic: false,
+            seed,
+            deterministic,
         },
         tokens_in,
         tokens_out,
         signing_key_id,
         tpm_pcr: None,
+        env: EnvFingerprint {
+            kernel_build_id: state.engine.kernel_build_id(),
+            thread_count,
+            device_class: state.engine.device().to_string(),
+        },
         signature: None,
     };
 

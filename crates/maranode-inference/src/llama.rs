@@ -453,7 +453,7 @@ fn generate_sync(
     let mut batch = LlamaBatch::new(N_BATCH as usize, 1);
     decode_prompt(&mut ctx, &mut batch, &prompt_tokens)?;
 
-    let mut sampler = build_sampler(req.temperature);
+    let mut sampler = build_sampler(req.temperature, req.seed, req.deterministic);
     let mut output = String::new();
     let mut n_cur = n_prompt;
     let mut finish_reason = FinishReason::Length;
@@ -611,7 +611,7 @@ fn stream_sync(
         return;
     }
 
-    let mut sampler = build_sampler(req.temperature);
+    let mut sampler = build_sampler(req.temperature, req.seed, req.deterministic);
     let mut n_cur = n_prompt;
     let mut emitted = String::new();
 
@@ -717,15 +717,22 @@ fn build_chatml_prompt(messages: &[ChatMessage]) -> String {
     buf
 }
 
-fn build_sampler(temperature: f32) -> LlamaSampler {
+fn build_sampler(temperature: f32, seed: Option<u64>, deterministic: bool) -> LlamaSampler {
+    #[cfg(not(deterministic_kernels))]
+    if deterministic {
+        tracing::warn!(
+            "request has deterministic=true but this binary was built without              deterministic-kernels feature; kernel non-determinism is not suppressed.              Rebuild with: cargo build --features deterministic-kernels"
+        );
+    }
     if temperature < 1e-6 {
         LlamaSampler::chain_simple([LlamaSampler::greedy()])
     } else {
+        let rng_seed = seed.unwrap_or(42) as u32;
         LlamaSampler::chain_simple([
             LlamaSampler::temp(temperature),
             LlamaSampler::top_p(0.95, 1),
             LlamaSampler::min_p(0.05, 1),
-            LlamaSampler::dist(42),
+            LlamaSampler::dist(rng_seed),
         ])
     }
 }

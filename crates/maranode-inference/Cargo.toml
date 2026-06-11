@@ -24,6 +24,11 @@ repository.workspace = true
 # Or use the Makefile targets: make build-metal / make build-cuda / make build-cpu / make build-npu
 default  = []
 cpu      = []
+# Compile llama.cpp with GGML_DETERMINISTIC=ON so reduction order is fixed in
+# RMSNorm / MatMul / attention. Required for bit-exact replay on the same hardware.
+# Usage: cargo build --features deterministic-kernels
+# Combine with other GPU features as needed.
+deterministic-kernels = []
 cuda     = ["llama-cpp-2/cuda"]
 metal    = ["llama-cpp-2/metal"]
 rocm     = ["llama-cpp-2/rocm"]
