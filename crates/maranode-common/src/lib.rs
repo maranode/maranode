@@ -1,5 +1,6 @@
 //! shared types, paths, and audit event definitions
 
+pub mod approval;
 pub mod baseline;
 pub mod error;
 pub mod events;

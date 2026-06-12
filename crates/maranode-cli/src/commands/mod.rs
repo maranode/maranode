@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod audit;
 pub mod baseline;
+pub mod registry;
 pub mod chat;
 pub mod model;
 pub mod quant;

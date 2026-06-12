@@ -30,6 +30,8 @@ pub struct DaemonConfig {
     pub assistant: AssistantConfig,
     pub logging: LoggingConfig,
     pub integrity: IntegrityConfig,
+    pub registry: RegistryConfig,
+    pub change_mgmt: ChangeManagementConfig,
     pub smtp: Option<SmtpConfig>,
 }
 
@@ -212,6 +214,35 @@ pub enum DriftAction {
 fn default_drift_action() -> DriftAction {
     DriftAction::Warn
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RegistryConfig {
+    pub require_approval_token: bool,
+    pub tokens_dir: Option<PathBuf>,
+}
+
+impl Default for RegistryConfig {
+    fn default() -> Self {
+        Self {
+            require_approval_token: false,
+            tokens_dir: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ChangeManagementConfig {
+    pub servicenow_url: Option<String>,
+    pub servicenow_user: Option<String>,
+    pub servicenow_password: Option<String>,
+    pub jira_url: Option<String>,
+    pub jira_project: Option<String>,
+    pub jira_user: Option<String>,
+    pub jira_token: Option<String>,
+}
+
 fn default_ldap_uid() -> String {
     "uid".into()
 }
@@ -313,6 +344,9 @@ impl Default for DaemonConfig {
             assistant: AssistantConfig::default(),
             logging: LoggingConfig::default(),
             integrity: IntegrityConfig::default(),
+            registry: RegistryConfig::default(),
+            change_mgmt: ChangeManagementConfig::default(),
+            smtp: None,
         }
     }
 }

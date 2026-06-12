@@ -117,6 +117,27 @@ pub enum AuditEvent {
         vectors_failed: usize,
         action_taken: String,
     },
+
+    ModelApprovalGranted {
+        model_id: String,
+        model_sha256: String,
+        approved_by: String,
+        token_id: String,
+        signer_pubkey: String,
+    },
+
+    ModelApprovalRevoked {
+        model_id: String,
+        model_sha256: String,
+        revoked_by: String,
+        token_id: String,
+    },
+
+    ModelLoadBlocked {
+        model_id: String,
+        model_sha256: String,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

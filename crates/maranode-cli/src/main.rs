@@ -87,6 +87,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::baseline::BaselineCommand,
     },
+    /// model approval registry: submit, approve, revoke, import/export tokens
+    Registry {
+        #[command(subcommand)]
+        action: commands::registry::RegistryCommand,
+    },
 }
 
 #[tokio::main]
@@ -150,6 +155,9 @@ async fn run() -> Result<()> {
         }
         Commands::Baseline { action } => {
             commands::baseline::run(action, &data_dir, &cli.host).await?;
+        }
+        Commands::Registry { action } => {
+            commands::registry::run(action, &data_dir, &cli.host).await?;
         }
     }
 

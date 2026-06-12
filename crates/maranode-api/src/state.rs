@@ -13,6 +13,7 @@ use maranode_inference::InferenceEngine;
 use maranode_rag::RagEngine;
 use maranode_store::{ModelStore, UserDb, WorkspaceDb};
 
+use crate::changemgmt::ChangeManagementConfig;
 use crate::runtime::{RuntimeSettings, SharedRuntime};
 
 #[derive(Debug)]
@@ -221,6 +222,8 @@ pub struct AppState {
     /// false when the last isolation probe detected egress (isolation broken).
     /// starts as true (optimistic); probe task sets it to false on drift.
     pub isolation_ok: Arc<AtomicBool>,
+
+    pub change_mgmt: Arc<ChangeManagementConfig>,
 }
 
 impl AppState {

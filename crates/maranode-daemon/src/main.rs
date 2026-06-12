@@ -19,7 +19,7 @@ use clap::Parser;
 use tracing::info;
 
 use maranode_api::state::Stats;
-use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, EngineEmbedder};
+use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, EngineEmbedder};
 use maranode_audit::AuditLog;
 use maranode_common::events::AuditEvent;
 use maranode_common::models::ModelId;
@@ -400,6 +400,15 @@ async fn main() -> Result<()> {
         oidc_pending: new_oidc_pending(),
         auth_ip_limiter: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         isolation_ok: Arc::new(AtomicBool::new(true)),
+        change_mgmt: Arc::new(ChangeManagementConfig {
+            servicenow_url: cfg.change_mgmt.servicenow_url.clone(),
+            servicenow_user: cfg.change_mgmt.servicenow_user.clone(),
+            servicenow_password: cfg.change_mgmt.servicenow_password.clone(),
+            jira_url: cfg.change_mgmt.jira_url.clone(),
+            jira_project: cfg.change_mgmt.jira_project.clone(),
+            jira_user: cfg.change_mgmt.jira_user.clone(),
+            jira_token: cfg.change_mgmt.jira_token.clone(),
+        }),
     };
 
     let reload_services = Arc::new(ReloadServices {
