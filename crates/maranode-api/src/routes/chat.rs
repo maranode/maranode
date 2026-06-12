@@ -85,6 +85,11 @@ async fn run(
             "inference refused: isolation probe detected egress — air-gap integrity cannot be confirmed",
         ));
     }
+    if state.audit_frozen.load(Ordering::Relaxed) {
+        return Err(ApiError::service_unavailable(
+            "inference suspended: an incident is active and the audit log is frozen",
+        ));
+    }
 
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("`messages` must not be empty"));

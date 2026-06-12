@@ -3,6 +3,8 @@
 pub mod changemgmt;
 pub mod dlp;
 pub mod error;
+pub mod forensic;
+pub mod incident;
 pub mod openai;
 pub mod rag_embedder;
 pub mod routes;
@@ -13,6 +15,7 @@ pub mod workspace_ctx;
 
 pub use changemgmt::ChangeManagementConfig;
 pub use dlp::DlpConfig;
+pub use incident::IncidentHandle;
 pub use rag_embedder::EngineEmbedder;
 pub use runtime::{RuntimeSettings, SharedRuntime, SmtpCfg};
 pub use state::{
@@ -47,6 +50,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::registry::router())
         .merge(routes::classification::router())
         .merge(routes::dlp::router())
+        .merge(routes::incident::router())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

@@ -176,6 +176,49 @@ pub enum AuditEvent {
         new_backend: String,
         new_pcr_list: Option<String>,
     },
+
+    IncidentDeclared {
+        incident_id: String,
+        declared_by: String,
+        reason: String,
+        sessions_terminated: u32,
+    },
+
+    AuditFrozen {
+        incident_id: String,
+        frozen_by: String,
+    },
+
+    AuditUnfrozen {
+        incident_id: String,
+        unfrozen_by: String,
+    },
+
+    ForensicSnapshot {
+        incident_id: String,
+        snapshot_path: String,
+        snapshot_sha256: String,
+    },
+
+    BreakGlassUsed {
+        cred_id: String,
+        used_by: String,
+        purpose: String,
+    },
+
+    IncidentPhaseChanged {
+        incident_id: String,
+        old_phase: String,
+        new_phase: String,
+        changed_by: String,
+        note: Option<String>,
+    },
+
+    IncidentResolved {
+        incident_id: String,
+        resolved_by: String,
+        summary: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

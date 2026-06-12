@@ -20,8 +20,9 @@ use tracing::info;
 
 use maranode_attestation::{seal, unseal, is_sealed};
 use maranode_api::state::Stats;
-use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, DlpConfig, EngineEmbedder};
+use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, DlpConfig, EngineEmbedder, IncidentHandle};
 use maranode_api::dlp::{ForcepointCfg, PurviewCfg, SymantecCfg};
+use maranode_api::incident::{load_incident_on_start, new_incident_handle};
 use maranode_common::classification::ClassificationPolicy;
 use maranode_audit::AuditLog;
 use maranode_common::events::AuditEvent;
@@ -381,6 +382,12 @@ async fn main() -> Result<()> {
 
     let runtime = runtime_from_config(&cfg, air_gap_active, system_prompt);
 
+    let recovered_incident = load_incident_on_start(&cfg.data_dir).await;
+    let recovered_frozen = recovered_incident.as_ref().map(|i| i.audit_frozen).unwrap_or(false);
+    if let Some(ref inc) = recovered_incident {
+        tracing::warn!(incident_id = %inc.id, phase = %inc.phase, "Incident state recovered from disk");
+    }
+
     let state = AppState {
         store,
         audit: audit.clone(),
@@ -440,6 +447,14 @@ async fn main() -> Result<()> {
                 },
             }
         }),
+        incident: {
+            let handle = new_incident_handle();
+            if let Some(inc) = recovered_incident {
+                *handle.lock().await = Some(inc);
+            }
+            handle
+        },
+        audit_frozen: Arc::new(AtomicBool::new(recovered_frozen)),
     };
 
     let reload_services = Arc::new(ReloadServices {

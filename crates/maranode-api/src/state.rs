@@ -16,6 +16,7 @@ use maranode_store::{ModelStore, UserDb, WorkspaceDb};
 
 use crate::changemgmt::ChangeManagementConfig;
 use crate::dlp::DlpConfig;
+use crate::incident::IncidentHandle;
 use crate::runtime::{RuntimeSettings, SharedRuntime};
 
 #[derive(Debug)]
@@ -230,6 +231,12 @@ pub struct AppState {
     pub classification: Arc<tokio::sync::RwLock<ClassificationPolicy>>,
 
     pub dlp: Arc<DlpConfig>,
+
+    /// current incident, if any. None = no active incident.
+    pub incident: IncidentHandle,
+
+    /// true when audit log is frozen (incident in progress)
+    pub audit_frozen: Arc<AtomicBool>,
 }
 
 impl AppState {

@@ -68,6 +68,8 @@ async fn make_app(air_gap: bool, isolation_ok: bool) -> axum::Router {
         change_mgmt: Arc::new(ChangeManagementConfig::default()),
         classification: Arc::new(tokio::sync::RwLock::new(ClassificationPolicy::default())),
         dlp: Arc::new(DlpConfig::default()),
+        incident: maranode_api::incident::new_incident_handle(),
+        audit_frozen: Arc::new(AtomicBool::new(false)),
     };
 
     build_router(state)

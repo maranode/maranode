@@ -102,6 +102,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::tpm::TpmCommand,
     },
+    /// incident response: declare, investigate, resolve, forensic snapshot, break-glass
+    Incident {
+        #[command(subcommand)]
+        action: commands::incident::IncidentCommand,
+    },
 }
 
 #[tokio::main]
@@ -174,6 +179,9 @@ async fn run() -> Result<()> {
         }
         Commands::Tpm { action } => {
             commands::tpm::run(action, &data_dir).await?;
+        }
+        Commands::Incident { action } => {
+            commands::incident::run(action, &cli.host).await?;
         }
     }
 
