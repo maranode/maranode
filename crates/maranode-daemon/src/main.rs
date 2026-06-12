@@ -19,7 +19,9 @@ use clap::Parser;
 use tracing::info;
 
 use maranode_api::state::Stats;
-use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, EngineEmbedder};
+use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, DlpConfig, EngineEmbedder};
+use maranode_api::dlp::{ForcepointCfg, PurviewCfg, SymantecCfg};
+use maranode_common::classification::ClassificationPolicy;
 use maranode_audit::AuditLog;
 use maranode_common::events::AuditEvent;
 use maranode_common::models::ModelId;
@@ -400,6 +402,9 @@ async fn main() -> Result<()> {
         oidc_pending: new_oidc_pending(),
         auth_ip_limiter: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         isolation_ok: Arc::new(AtomicBool::new(true)),
+        classification: Arc::new(tokio::sync::RwLock::new(
+            ClassificationPolicy::load(&cfg.data_dir).unwrap_or_default()
+        )),
         change_mgmt: Arc::new(ChangeManagementConfig {
             servicenow_url: cfg.change_mgmt.servicenow_url.clone(),
             servicenow_user: cfg.change_mgmt.servicenow_user.clone(),
@@ -408,6 +413,36 @@ async fn main() -> Result<()> {
             jira_project: cfg.change_mgmt.jira_project.clone(),
             jira_user: cfg.change_mgmt.jira_user.clone(),
             jira_token: cfg.change_mgmt.jira_token.clone(),
+        }),
+        dlp: Arc::new({
+            let d = &cfg.dlp;
+            DlpConfig {
+                purview: match (&d.purview_tenant_id, &d.purview_client_id, &d.purview_client_secret) {
+                    (Some(t), Some(c), Some(s)) => Some(PurviewCfg {
+                        tenant_id: t.clone(),
+                        client_id: c.clone(),
+                        client_secret: s.clone(),
+                        subscription_id: d.purview_subscription_id.clone(),
+                    }),
+                    _ => None,
+                },
+                forcepoint: match (&d.forcepoint_url, &d.forcepoint_username, &d.forcepoint_password) {
+                    (Some(u), Some(n), Some(p)) => Some(ForcepointCfg {
+                        base_url: u.clone(),
+                        username: n.clone(),
+                        password: p.clone(),
+                    }),
+                    _ => None,
+                },
+                symantec: match (&d.symantec_url, &d.symantec_username, &d.symantec_password) {
+                    (Some(u), Some(n), Some(p)) => Some(SymantecCfg {
+                        enforce_url: u.clone(),
+                        username: n.clone(),
+                        password: p.clone(),
+                    }),
+                    _ => None,
+                },
+            }
         }),
     };
 

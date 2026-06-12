@@ -12,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use maranode_common::classification::DataLabel;
 use maranode_common::events::AuditEvent;
 use maranode_common::models::{ChatMessage, ChatRole};
 use maranode_inference::types::InferenceRequest;
@@ -202,6 +203,33 @@ async fn ingest_document(
 
     if req.text.trim().is_empty() {
         return Err(ApiError::bad_request("`text` must not be empty"));
+    }
+
+    // labeled collections require the admin key
+    {
+        let policy = state.classification.read().await;
+        if let Some(col_policy) = policy.collection_label(&collection) {
+            if col_policy.block_on_violation && col_policy.label > DataLabel::Public {
+                use maranode_common::secure::ct_eq_str;
+                let rt = state.rt();
+                let ok = rt.admin_key.as_deref().is_some_and(|k| {
+                    bearer_key(&headers).is_some_and(|b| ct_eq_str(b, k))
+                });
+                if !ok {
+                    let _ = state.audit.append("classification", AuditEvent::DataClassificationViolation {
+                        workspace: "ingest".into(),
+                        collection: collection.clone(),
+                        required_label: col_policy.label.to_string(),
+                        workspace_clearance: DataLabel::Public.to_string(),
+                        blocked: true,
+                    }).await;
+                    return Err(ApiError::forbidden(format!(
+                        "collection '{}' is labeled {} — ingest requires admin key",
+                        collection, col_policy.label
+                    )));
+                }
+            }
+        }
     }
 
     let stats = rag

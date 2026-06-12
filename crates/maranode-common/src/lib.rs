@@ -2,6 +2,7 @@
 
 pub mod approval;
 pub mod baseline;
+pub mod classification;
 pub mod error;
 pub mod events;
 pub mod gguf;

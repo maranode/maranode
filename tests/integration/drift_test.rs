@@ -12,11 +12,14 @@ use tempfile::TempDir;
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
+use maranode_api::changemgmt::ChangeManagementConfig;
+use maranode_api::dlp::DlpConfig;
 use maranode_api::runtime::{new_shared, RuntimeSettings};
 use maranode_api::state::{IdentityConfig, RagIngestPolicy, Stats};
 use maranode_api::{build_router, AppState};
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::AuditLog;
+use maranode_common::classification::ClassificationPolicy;
 use maranode_common::events::{AuditEntry, AuditEvent, ProbeResult};
 use maranode_inference::{engine::InferenceEngine, stub::StubEngine};
 use maranode_store::{ModelStore, UserDb, WorkspaceDb};
@@ -62,6 +65,9 @@ async fn make_app(air_gap: bool, isolation_ok: bool) -> axum::Router {
         oidc_pending: maranode_api::state::new_oidc_pending(),
         auth_ip_limiter: Arc::new(Mutex::new(HashMap::new())),
         isolation_ok: Arc::new(AtomicBool::new(isolation_ok)),
+        change_mgmt: Arc::new(ChangeManagementConfig::default()),
+        classification: Arc::new(tokio::sync::RwLock::new(ClassificationPolicy::default())),
+        dlp: Arc::new(DlpConfig::default()),
     };
 
     build_router(state)

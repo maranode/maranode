@@ -1,6 +1,7 @@
 //! http api compatible with openai format (axum)
 
 pub mod changemgmt;
+pub mod dlp;
 pub mod error;
 pub mod openai;
 pub mod rag_embedder;
@@ -11,6 +12,7 @@ pub mod user_ctx;
 pub mod workspace_ctx;
 
 pub use changemgmt::ChangeManagementConfig;
+pub use dlp::DlpConfig;
 pub use rag_embedder::EngineEmbedder;
 pub use runtime::{RuntimeSettings, SharedRuntime, SmtpCfg};
 pub use state::{
@@ -43,6 +45,8 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::identity::router())
         .merge(routes::baseline::router())
         .merge(routes::registry::router())
+        .merge(routes::classification::router())
+        .merge(routes::dlp::router())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

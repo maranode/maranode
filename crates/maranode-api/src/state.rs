@@ -9,11 +9,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use maranode_audit::AuditLog;
+use maranode_common::classification::ClassificationPolicy;
 use maranode_inference::InferenceEngine;
 use maranode_rag::RagEngine;
 use maranode_store::{ModelStore, UserDb, WorkspaceDb};
 
 use crate::changemgmt::ChangeManagementConfig;
+use crate::dlp::DlpConfig;
 use crate::runtime::{RuntimeSettings, SharedRuntime};
 
 #[derive(Debug)]
@@ -224,6 +226,10 @@ pub struct AppState {
     pub isolation_ok: Arc<AtomicBool>,
 
     pub change_mgmt: Arc<ChangeManagementConfig>,
+
+    pub classification: Arc<tokio::sync::RwLock<ClassificationPolicy>>,
+
+    pub dlp: Arc<DlpConfig>,
 }
 
 impl AppState {

@@ -9,9 +9,14 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
+use std::sync::atomic::AtomicBool;
+
+use maranode_api::changemgmt::ChangeManagementConfig;
+use maranode_api::dlp::DlpConfig;
 use maranode_api::runtime::{new_shared, RuntimeSettings};
 use maranode_api::state::{new_oidc_pending, Stats};
 use maranode_api::{build_router, AppState, IdentityConfig, RagIngestPolicy};
+use maranode_common::classification::ClassificationPolicy;
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::AuditLog;
 use maranode_inference::{engine::InferenceEngine, stub::StubEngine};
@@ -54,6 +59,10 @@ async fn test_app(tmp_path: &std::path::Path) -> axum::Router {
         user_db: Arc::new(Mutex::new(user_db)),
         oidc_pending: new_oidc_pending(),
         auth_ip_limiter: Arc::new(Mutex::new(HashMap::new())),
+        isolation_ok: Arc::new(AtomicBool::new(true)),
+        change_mgmt: Arc::new(ChangeManagementConfig::default()),
+        classification: Arc::new(tokio::sync::RwLock::new(ClassificationPolicy::default())),
+        dlp: Arc::new(DlpConfig::default()),
     };
 
     build_router(state)

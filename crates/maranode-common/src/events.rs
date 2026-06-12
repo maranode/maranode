@@ -138,6 +138,25 @@ pub enum AuditEvent {
         model_sha256: String,
         reason: String,
     },
+
+    DataClassificationViolation {
+        workspace: String,
+        collection: String,
+        required_label: String,
+        workspace_clearance: String,
+        blocked: bool,
+    },
+
+    DataLabelAssigned {
+        collection: String,
+        label: String,
+        assigned_by: String,
+    },
+
+    DlpSyncCompleted {
+        provider: String,
+        labels_imported: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -32,6 +32,7 @@ pub struct DaemonConfig {
     pub integrity: IntegrityConfig,
     pub registry: RegistryConfig,
     pub change_mgmt: ChangeManagementConfig,
+    pub dlp: DlpConfig,
     pub smtp: Option<SmtpConfig>,
 }
 
@@ -233,6 +234,21 @@ impl Default for RegistryConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+pub struct DlpConfig {
+    pub purview_tenant_id: Option<String>,
+    pub purview_client_id: Option<String>,
+    pub purview_client_secret: Option<String>,
+    pub purview_subscription_id: Option<String>,
+    pub forcepoint_url: Option<String>,
+    pub forcepoint_username: Option<String>,
+    pub forcepoint_password: Option<String>,
+    pub symantec_url: Option<String>,
+    pub symantec_username: Option<String>,
+    pub symantec_password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ChangeManagementConfig {
     pub servicenow_url: Option<String>,
     pub servicenow_user: Option<String>,
@@ -346,6 +362,7 @@ impl Default for DaemonConfig {
             integrity: IntegrityConfig::default(),
             registry: RegistryConfig::default(),
             change_mgmt: ChangeManagementConfig::default(),
+            dlp: DlpConfig::default(),
             smtp: None,
         }
     }

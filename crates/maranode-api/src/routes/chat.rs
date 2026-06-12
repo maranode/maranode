@@ -243,12 +243,39 @@ async fn run(
             .append(
                 "api",
                 AuditEvent::RagRetrieval {
-                    collection: audit_collection,
+                    collection: audit_collection.clone(),
                     query_sha256,
                     hits: retrieved.len(),
                 },
             )
             .await;
+
+        // classification enforcement
+        {
+            let policy = state.classification.read().await;
+            let violations = if audit_collection == "*" {
+                policy.check_all_collections(&ws.slug)
+            } else {
+                policy.check_access(&ws.slug, &audit_collection)
+                    .map(|v| vec![v])
+                    .unwrap_or_default()
+            };
+            for v in violations {
+                let _ = audit_log.append("classification", AuditEvent::DataClassificationViolation {
+                    workspace: ws.slug.clone(),
+                    collection: v.collection.clone(),
+                    required_label: v.required_label.to_string(),
+                    workspace_clearance: v.workspace_clearance.to_string(),
+                    blocked: v.block,
+                }).await;
+                if v.block {
+                    return Err(ApiError::forbidden(format!(
+                        "workspace '{}' (clearance: {}) cannot access collection '{}' (label: {})",
+                        ws.slug, v.workspace_clearance, v.collection, v.required_label
+                    )));
+                }
+            }
+        }
 
         rag_retrieved = retrieved.clone();
         match rag.build_context_prompt(&retrieved) {

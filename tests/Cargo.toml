@@ -42,6 +42,10 @@ path = "integration/shred_test.rs"
 name = "drift"
 path = "integration/drift_test.rs"
 
+[[test]]
+name = "classification"
+path = "integration/classification_tests.rs"
+
 # E2E tests
 [[test]]
 name = "repro_ci"

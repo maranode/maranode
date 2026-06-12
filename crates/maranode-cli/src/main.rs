@@ -92,6 +92,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::registry::RegistryCommand,
     },
+    /// DLP label sync from Purview, Forcepoint, or Symantec
+    Dlp {
+        #[command(subcommand)]
+        action: commands::dlp::DlpCommand,
+    },
 }
 
 #[tokio::main]
@@ -158,6 +163,9 @@ async fn run() -> Result<()> {
         }
         Commands::Registry { action } => {
             commands::registry::run(action, &data_dir, &cli.host).await?;
+        }
+        Commands::Dlp { action } => {
+            commands::dlp::run(action, &cli.host).await?;
         }
     }
 
