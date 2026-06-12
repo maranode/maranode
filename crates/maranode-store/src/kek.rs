@@ -1,5 +1,9 @@
 //! Master key (KEK) management — wraps workspace DEKs so they can be
-//! rotated or TPM-sealed later without touching the encrypted data.
+//! rotated or TPM-sealed without touching the encrypted data.
+//!
+//! When TPM sealing is enabled, `load_or_create_sealed` stores the KEK as a
+//! sealed blob under <data_dir>/tpm/workspace-kek/ instead of the plain hex
+//! file.  The plain hex path is still used when TPM sealing is disabled.
 
 use std::path::Path;
 

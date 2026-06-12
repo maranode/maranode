@@ -25,6 +25,29 @@ struct LogInner {
 }
 
 impl AuditLog {
+    /// open with a pre-loaded key (for TPM-sealed key workflows)
+    pub fn open_with_key(log_path: &Path, key: Vec<u8>) -> Result<Self> {
+        let (seq, last_hmac) = Self::scan_tail(log_path, &key)?;
+
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let file = opts.open(log_path)?;
+
+        Ok(Self {
+            inner: Arc::new(Mutex::new(LogInner {
+                file,
+                seq,
+                last_hmac,
+                key,
+            })),
+        })
+    }
+
     pub fn open(log_path: &Path, key_path: &Path) -> Result<Self> {
         let key = crate::key::load_or_generate(key_path)?;
 

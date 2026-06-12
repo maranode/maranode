@@ -56,14 +56,19 @@ name = "api_e2e"
 path = "e2e/api_test.rs"
 
 # dependencies
+[[test]]
+name = "tpm"
+path = "integration/tpm_tests.rs"
+
 [dev-dependencies]
-maranode-common    = { workspace = true }
-maranode-audit     = { workspace = true }
-maranode-store     = { workspace = true }
-maranode-inference = { workspace = true }
-maranode-api       = { workspace = true }
-maranode-isolation = { workspace = true }
-maranode-rag       = { workspace = true }
+maranode-common      = { workspace = true }
+maranode-audit       = { workspace = true }
+maranode-store       = { workspace = true }
+maranode-inference   = { workspace = true }
+maranode-api         = { workspace = true }
+maranode-isolation   = { workspace = true }
+maranode-rag         = { workspace = true }
+maranode-attestation = { workspace = true }
 
 tokio          = { workspace = true }
 anyhow         = { workspace = true }

@@ -33,6 +33,7 @@ pub struct DaemonConfig {
     pub registry: RegistryConfig,
     pub change_mgmt: ChangeManagementConfig,
     pub dlp: DlpConfig,
+    pub tpm: TpmConfig,
     pub smtp: Option<SmtpConfig>,
 }
 
@@ -232,6 +233,32 @@ impl Default for RegistryConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TpmConfig {
+    /// enable TPM sealing for workspace KEK and audit HMAC key
+    pub enabled: bool,
+    /// PCR indices to seal against (comma-separated, e.g. "0,7")
+    /// defaults to "0,7" (firmware + Secure Boot)
+    pub pcr_indices: String,
+    /// passphrase used for the software fallback when TPM is unavailable
+    /// must be set in config or via MARANODE_TPM_PASSPHRASE env var
+    pub software_passphrase: Option<String>,
+    /// which key purposes to seal: "workspace-kek", "audit-hmac", "admin-cred"
+    pub seal_purposes: Vec<String>,
+}
+
+impl Default for TpmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pcr_indices: "0,7".into(),
+            software_passphrase: None,
+            seal_purposes: vec!["workspace-kek".into(), "audit-hmac".into()],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DlpConfig {
@@ -363,6 +390,7 @@ impl Default for DaemonConfig {
             registry: RegistryConfig::default(),
             change_mgmt: ChangeManagementConfig::default(),
             dlp: DlpConfig::default(),
+            tpm: TpmConfig::default(),
             smtp: None,
         }
     }
@@ -451,6 +479,12 @@ impl DaemonConfig {
         }
         if let Ok(v) = std::env::var("MARANODE_RAG_COLLECTION") {
             self.rag.default_collection = v;
+        }
+        if let Ok(v) = std::env::var("MARANODE_TPM_PASSPHRASE") {
+            self.tpm.software_passphrase = Some(v);
+        }
+        if std::env::var_os("MARANODE_TPM").is_some_and(|v| v == "1" || v == "true") {
+            self.tpm.enabled = true;
         }
     }
 

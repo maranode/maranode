@@ -97,6 +97,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::dlp::DlpCommand,
     },
+    /// TPM key sealing: status, capture PCRs, seal, unseal-test, verify
+    Tpm {
+        #[command(subcommand)]
+        action: commands::tpm::TpmCommand,
+    },
 }
 
 #[tokio::main]
@@ -166,6 +171,9 @@ async fn run() -> Result<()> {
         }
         Commands::Dlp { action } => {
             commands::dlp::run(action, &cli.host).await?;
+        }
+        Commands::Tpm { action } => {
+            commands::tpm::run(action, &data_dir).await?;
         }
     }
 

@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::info;
 
+use maranode_attestation::{seal, unseal, is_sealed};
 use maranode_api::state::Stats;
 use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, DlpConfig, EngineEmbedder};
 use maranode_api::dlp::{ForcepointCfg, PurviewCfg, SymantecCfg};
@@ -190,10 +191,7 @@ async fn main() -> Result<()> {
     .await
     .context("first-run model bootstrap")?;
 
-    let audit = AuditLog::open(
-        &maranode_audit::log::default_log_path(&cfg.data_dir),
-        &maranode_audit::log::default_key_path(&cfg.data_dir),
-    )?;
+    let audit = open_audit_log(&cfg)?;
     info!("Audit log opened (seq={})", audit.seq().await);
 
     let iso_cfg = IsolationConfig {
@@ -274,9 +272,7 @@ async fn main() -> Result<()> {
         max_parallel, max_queue,
     );
 
-    let master_key = kek::load_or_create(&kek::default_kek_path(&cfg.data_dir))
-        .context("loading master KEK")?;
-    info!("Master KEK loaded ({})", kek::default_kek_path(&cfg.data_dir).display());
+    let master_key = load_master_kek(&cfg).await?;
 
     let ws_db_path = cfg.data_dir.join("workspaces.db");
     let workspace_db = WorkspaceDb::open_with_kek(&ws_db_path, master_key)
@@ -528,6 +524,84 @@ async fn main() -> Result<()> {
 
     info!("maranoded stopped");
     Ok(())
+}
+
+fn open_audit_log(cfg: &DaemonConfig) -> Result<AuditLog> {
+    let log_path = maranode_audit::log::default_log_path(&cfg.data_dir);
+    let key_path = maranode_audit::log::default_key_path(&cfg.data_dir);
+
+    if !cfg.tpm.enabled || !cfg.tpm.seal_purposes.iter().any(|p| p == "audit-hmac") {
+        return AuditLog::open(&log_path, &key_path);
+    }
+
+    let purpose = "audit-hmac";
+    let passphrase = cfg.tpm.software_passphrase.as_deref().unwrap_or("");
+    let pcr_list = format!("sha256:{}", cfg.tpm.pcr_indices);
+
+    if is_sealed(purpose, &cfg.data_dir) {
+        match unseal(purpose, &cfg.data_dir, passphrase) {
+            Ok(key_bytes) => {
+                info!("Audit HMAC key unsealed from TPM");
+                return AuditLog::open_with_key(&log_path, key_bytes);
+            }
+            Err(e) => anyhow::bail!("TPM unseal failed for audit-hmac: {e}"),
+        }
+    }
+
+    // first run: load/create plain key, then seal it
+    let key_bytes = maranode_audit::key::load_or_generate(&key_path)?;
+    match seal(&key_bytes, purpose, &cfg.data_dir, Some(&pcr_list), passphrase) {
+        Ok(meta) => info!(
+            "Audit HMAC key sealed to TPM (backend={:?})",
+            meta.backend
+        ),
+        Err(e) => tracing::warn!("Audit HMAC key TPM seal failed, using plain file: {e}"),
+    }
+
+    AuditLog::open_with_key(&log_path, key_bytes)
+}
+
+async fn load_master_kek(cfg: &DaemonConfig) -> Result<[u8; 32]> {
+    if !cfg.tpm.enabled {
+        let key = kek::load_or_create(&kek::default_kek_path(&cfg.data_dir))
+            .context("loading master KEK")?;
+        info!("Master KEK loaded (plain file)");
+        return Ok(key);
+    }
+
+    let purpose = "workspace-kek";
+    let passphrase = cfg.tpm.software_passphrase.as_deref().unwrap_or("");
+    let pcr_list = format!("sha256:{}", cfg.tpm.pcr_indices);
+
+    if is_sealed(purpose, &cfg.data_dir) {
+        match unseal(purpose, &cfg.data_dir, passphrase) {
+            Ok(bytes) => {
+                if bytes.len() != 32 {
+                    anyhow::bail!("unsealed workspace-kek is {} bytes, expected 32", bytes.len());
+                }
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&bytes);
+                info!("Master KEK unsealed from TPM (purpose=workspace-kek)");
+                return Ok(key);
+            }
+            Err(e) => anyhow::bail!("TPM unseal failed for workspace-kek: {e}"),
+        }
+    }
+
+    // first run — generate KEK and seal it
+    let key = kek::load_or_create(&kek::default_kek_path(&cfg.data_dir))
+        .context("loading/creating master KEK")?;
+
+    match seal(key.as_ref(), purpose, &cfg.data_dir, Some(&pcr_list), passphrase) {
+        Ok(meta) => info!(
+            "Master KEK sealed to TPM (backend={:?}, pcrs={})",
+            meta.backend,
+            meta.pcr_list.as_deref().unwrap_or("none")
+        ),
+        Err(e) => tracing::warn!("TPM seal failed, running with plain KEK file: {e}"),
+    }
+
+    Ok(key)
 }
 
 fn spawn_retention_scheduler(state: maranode_api::AppState) {

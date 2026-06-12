@@ -3,6 +3,7 @@ pub mod audit;
 pub mod baseline;
 pub mod dlp;
 pub mod registry;
+pub mod tpm;
 pub mod chat;
 pub mod model;
 pub mod quant;

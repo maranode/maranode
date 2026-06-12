@@ -157,6 +157,25 @@ pub enum AuditEvent {
         provider: String,
         labels_imported: usize,
     },
+
+    TpmKeySealed {
+        purpose: String,
+        backend: String, // "tpm2" or "software"
+        pcr_list: Option<String>,
+    },
+
+    TpmUnsealFailed {
+        purpose: String,
+        reason: String,
+        fail_count: u32,
+    },
+
+    TpmKeyRotated {
+        purpose: String,
+        reason: String,
+        new_backend: String,
+        new_pcr_list: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
