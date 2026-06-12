@@ -4,6 +4,7 @@ pub mod baseline;
 pub mod chat;
 pub mod classification;
 pub mod dlp;
+pub mod hold;
 pub mod incident;
 pub mod registry;
 pub mod embeddings;

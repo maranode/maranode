@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::info;
 
-use maranode_attestation::{seal, unseal, is_sealed};
+use maranode_attestation::{seal, unseal, is_sealed, detect_tee, get_tee_report};
 use maranode_api::state::Stats;
 use maranode_api::{build_router, new_oidc_pending, runtime::new_shared, AppState, ChangeManagementConfig, DlpConfig, EngineEmbedder, IncidentHandle};
 use maranode_api::dlp::{ForcepointCfg, PurviewCfg, SymantecCfg};
@@ -246,6 +246,22 @@ async fn main() -> Result<()> {
             }
         }
         Err(e) => tracing::warn!("Binary attestation failed: {e}"),
+    }
+
+    // probe TEE environment and record in audit chain
+    {
+        let tee_report = get_tee_report(b"daemon-startup");
+        let binary_sha256 = maranode_attestation::binary::measure_self()
+            .map(|m| m.sha256)
+            .unwrap_or_default();
+        if !tee_report.is_synthetic {
+            info!(tee_type = %tee_report.tee_type, "TEE environment detected");
+        }
+        audit.append("daemon", AuditEvent::TeeAttested {
+            tee_type: tee_report.tee_type.to_string(),
+            report_hash: tee_report.report_hash,
+            binary_sha256,
+        }).await?;
     }
 
     let device_pref = match cfg.device.to_lowercase().as_str() {

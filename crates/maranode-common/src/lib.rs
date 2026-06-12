@@ -1,6 +1,7 @@
 //! shared types, paths, and audit event definitions
 
 pub mod approval;
+pub mod hold;
 pub mod incident;
 pub mod baseline;
 pub mod classification;

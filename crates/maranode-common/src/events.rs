@@ -219,6 +219,32 @@ pub enum AuditEvent {
         resolved_by: String,
         summary: String,
     },
+
+    LegalHoldPlaced {
+        hold_id: String,
+        placed_by: String,
+        seq_from: u64,
+        seq_to: u64,
+        reason: String,
+        tpm_sealed: bool,
+    },
+
+    LegalHoldReleased {
+        hold_id: String,
+        released_by: String,
+    },
+
+    LegalHoldKeyGenerated {
+        pubkey_hex: String,
+        generated_by: String,
+        tpm_sealed: bool,
+    },
+
+    TeeAttested {
+        tee_type: String,
+        report_hash: String,
+        binary_sha256: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

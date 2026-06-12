@@ -251,6 +251,7 @@ pub fn runtime_from_config(
             from: s.from.clone(),
             starttls: s.starttls,
         }),
+        tee_encrypt_key: cfg.tee_encrypt_key.clone(),
     }
 }
 

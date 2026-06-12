@@ -41,6 +41,7 @@ async fn test_app(tmp_path: &std::path::Path) -> axum::Router {
         log_prompts: false,
         content_log_retention_days: 0,
         smtp: None,
+        tee_encrypt_key: None,
     });
 
     let state = AppState {

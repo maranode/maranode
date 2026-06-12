@@ -35,6 +35,9 @@ pub struct DaemonConfig {
     pub dlp: DlpConfig,
     pub tpm: TpmConfig,
     pub smtp: Option<SmtpConfig>,
+    /// hex-encoded 32-byte key for AES-256-GCM prompt/response encryption in TEE mode.
+    /// generate with: maranode tee keygen
+    pub tee_encrypt_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

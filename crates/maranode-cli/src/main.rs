@@ -107,6 +107,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::incident::IncidentCommand,
     },
+    /// legal hold on audit segments: generate-key, place, release, sign-release, list
+    Hold {
+        #[command(subcommand)]
+        action: commands::hold::HoldCommand,
+    },
 }
 
 #[tokio::main]
@@ -182,6 +187,9 @@ async fn run() -> Result<()> {
         }
         Commands::Incident { action } => {
             commands::incident::run(action, &cli.host).await?;
+        }
+        Commands::Hold { action } => {
+            commands::hold::run(action, &cli.host).await?;
         }
     }
 

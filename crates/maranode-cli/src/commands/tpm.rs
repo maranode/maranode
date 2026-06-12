@@ -4,6 +4,7 @@ use clap::Subcommand;
 use maranode_attestation::{
     export_recovery_bundle, import_recovery_bundle, is_sealed, is_tpm2_tools_available,
     read_rotation_log, rotate_in_place, seal, seal_status, unseal, PcrPolicy,
+    detect_tee, get_tee_report, measure_tee_perf,
 };
 
 #[derive(Subcommand)]
@@ -92,6 +93,12 @@ pub enum TpmCommand {
 
     /// show rotation history from the rotation log
     RotationLog,
+
+    /// generate a new AES-256-GCM key for TEE API encryption
+    TeeKeygen,
+
+    /// probe the TEE environment and print a report
+    TeeProbe,
 }
 
 pub async fn run(cmd: TpmCommand, data_dir: &std::path::Path) -> Result<()> {
@@ -254,6 +261,31 @@ pub async fn run(cmd: TpmCommand, data_dir: &std::path::Path) -> Result<()> {
                     );
                 }
             }
+        }
+
+        TpmCommand::TeeKeygen => {
+            let key_hex = maranode_attestation::tee_keygen();
+            println!("Generated TEE encryption key (AES-256-GCM, 32 bytes):");
+            println!("{key_hex}");
+            println!("\nAdd to config.toml:");
+            println!("  tee_encrypt_key = \"{key_hex}\"");
+        }
+
+        TpmCommand::TeeProbe => {
+            let tee_type = detect_tee();
+            let report = get_tee_report(b"cli-probe");
+            let perf = measure_tee_perf();
+
+            println!("TEE environment: {tee_type}");
+            println!("  report_hash:  {}", report.report_hash);
+            println!("  measurement:  {}", report.measurement);
+            println!("  is_synthetic: {}", report.is_synthetic);
+            println!("Performance:");
+            println!("  detect:  {}µs", perf.detect_us);
+            println!("  report:  {}µs", perf.report_us);
+            println!("  encrypt: {}µs (4096-byte block)", perf.encrypt_us);
+            println!("  decrypt: {}µs", perf.decrypt_us);
+            println!("  note: {}", perf.note);
         }
     }
 

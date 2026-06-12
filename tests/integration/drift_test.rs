@@ -35,6 +35,7 @@ fn make_runtime(air_gap: bool) -> maranode_api::runtime::SharedRuntime {
         log_prompts: false,
         content_log_retention_days: 0,
         smtp: None,
+        tee_encrypt_key: None,
     })
 }
 

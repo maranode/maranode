@@ -2,6 +2,7 @@ pub mod admin;
 pub mod audit;
 pub mod baseline;
 pub mod dlp;
+pub mod hold;
 pub mod incident;
 pub mod registry;
 pub mod tpm;

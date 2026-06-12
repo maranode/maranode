@@ -194,16 +194,30 @@ async fn run(
         model_key: model_key.clone(),
     };
 
+    // if TEE encryption is configured, decrypt incoming message content
+    let tee_key = rt.tee_encrypt_key.as_deref().and_then(|k| {
+        crate::tee_encrypt::TeeEncryptKey::from_hex(k)
+            .map_err(|e| tracing::warn!("tee_encrypt_key invalid: {e}"))
+            .ok()
+    });
+
     let mut messages: Vec<ChatMessage> = req
         .messages
         .iter()
-        .map(|m| ChatMessage {
-            role: match m.role.as_str() {
-                "system" => ChatRole::System,
-                "assistant" => ChatRole::Assistant,
-                _ => ChatRole::User,
-            },
-            content: m.content.clone(),
+        .map(|m| {
+            let content = if let Some(key) = &tee_key {
+                key.decrypt_str(&m.content).unwrap_or_else(|_| m.content.clone())
+            } else {
+                m.content.clone()
+            };
+            ChatMessage {
+                role: match m.role.as_str() {
+                    "system" => ChatRole::System,
+                    "assistant" => ChatRole::Assistant,
+                    _ => ChatRole::User,
+                },
+                content,
+            }
         })
         .collect();
 
@@ -561,6 +575,12 @@ async fn run(
 
     let response_receipt = if req.with_receipt { receipt } else { None };
 
+    let out_content = if let Some(key) = &tee_key {
+        key.encrypt_str(&resp.content).unwrap_or(resp.content)
+    } else {
+        resp.content
+    };
+
     Ok(Json(ChatCompletionResponse {
         id: format!("chatcmpl-{}", request_id),
         object: "chat.completion",
@@ -570,7 +590,7 @@ async fn run(
             index: 0,
             message: OaiMessage {
                 role: "assistant".into(),
-                content: resp.content,
+                content: out_content,
             },
             finish_reason: "stop".into(),
         }],

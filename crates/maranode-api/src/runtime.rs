@@ -28,6 +28,9 @@ pub struct RuntimeSettings {
     /// retention in days for content-logged entries (0 = no automatic pruning)
     pub content_log_retention_days: u32,
     pub smtp: Option<SmtpCfg>,
+    /// hex-encoded 32-byte AES-256-GCM key; when set, prompts and responses are encrypted
+    /// at the API layer (TEE deployments). None = plaintext (default).
+    pub tee_encrypt_key: Option<String>,
 }
 
 pub type SharedRuntime = Arc<RwLock<RuntimeSettings>>;

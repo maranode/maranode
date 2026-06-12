@@ -1,10 +1,13 @@
 //! http api compatible with openai format (axum)
 
 pub mod changemgmt;
+pub mod tee_encrypt;
 pub mod dlp;
 pub mod error;
 pub mod forensic;
+pub mod hold_recovery;
 pub mod incident;
+pub mod legal_hold;
 pub mod openai;
 pub mod rag_embedder;
 pub mod routes;
@@ -51,6 +54,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::classification::router())
         .merge(routes::dlp::router())
         .merge(routes::incident::router())
+        .merge(routes::hold::router())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

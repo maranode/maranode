@@ -7,10 +7,12 @@
 //! into the signed payload. Signature covers (report_sha256 || nonce) as UTF-8.
 //! A verifier needs only the public key and the two response fields to check authenticity.
 
-use axum::{extract::{Query, State}, routing::get, Json, Router};
+use axum::{extract::{Query, State}, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 
 use maranode_attestation::report::AttestationReport;
+use maranode_attestation::{get_tee_report, measure_tee_perf};
+use ed25519_dalek::Verifier;
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::sign;
 
@@ -21,6 +23,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/attestation/report", get(get_report))
         .route("/v1/attestation/public-key", get(get_public_key))
+        .route("/v1/attestation/tee", get(get_tee))
+        .route("/v1/attestation/tee/verify", post(verify_tee))
+        .route("/v1/attestation/tee/perf", get(get_tee_perf))
 }
 
 #[derive(Deserialize)]
@@ -106,4 +111,88 @@ async fn get_public_key(
         public_key_hex: hex::encode(sk.verifying_key().to_bytes()),
         usage: "verify ed25519_sig in /v1/attestation/report: sign(report_sha256 || nonce)",
     }))
+}
+
+#[derive(Deserialize)]
+struct TeeQuery {
+    nonce: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TeeReportResp {
+    tee_type: String,
+    report_hash: String,
+    measurement: String,
+    is_synthetic: bool,
+    nonce: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ed25519_sig: Option<String>,
+}
+
+async fn get_tee(
+    State(state): State<AppState>,
+    Query(q): Query<TeeQuery>,
+) -> ApiResult<Json<TeeReportResp>> {
+    let nonce_str = q.nonce.unwrap_or_default();
+    let report = get_tee_report(nonce_str.as_bytes());
+
+    let ed25519_sig = sign::load_or_create(&state.data_dir).ok().map(|sk| {
+        let payload = format!("{}{}", report.report_hash, nonce_str);
+        let sig = sign::sign(&sk, payload.as_bytes());
+        hex::encode(sig)
+    });
+
+    Ok(Json(TeeReportResp {
+        tee_type: report.tee_type.to_string(),
+        report_hash: report.report_hash,
+        measurement: report.measurement,
+        is_synthetic: report.is_synthetic,
+        nonce: nonce_str,
+        ed25519_sig,
+    }))
+}
+
+#[derive(Deserialize)]
+struct VerifyTeeReq {
+    report_hash: String,
+    nonce: String,
+    ed25519_sig: String,
+    ed25519_pubkey: String,
+}
+
+#[derive(Serialize)]
+struct VerifyTeeResp {
+    valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+async fn verify_tee(
+    Json(req): Json<VerifyTeeReq>,
+) -> ApiResult<Json<VerifyTeeResp>> {
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    let pubkey_bytes = hex::decode(&req.ed25519_pubkey)
+        .map_err(|_| ApiError::bad_request("invalid pubkey hex"))?;
+    let vk = VerifyingKey::from_bytes(
+        pubkey_bytes.as_slice().try_into()
+            .map_err(|_| ApiError::bad_request("pubkey must be 32 bytes"))?,
+    ).map_err(|_| ApiError::bad_request("invalid ed25519 pubkey"))?;
+
+    let sig_bytes = hex::decode(&req.ed25519_sig)
+        .map_err(|_| ApiError::bad_request("invalid signature hex"))?;
+    let sig = Signature::from_bytes(
+        sig_bytes.as_slice().try_into()
+            .map_err(|_| ApiError::bad_request("signature must be 64 bytes"))?,
+    );
+
+    let payload = format!("{}{}", req.report_hash, req.nonce);
+    match vk.verify_strict(payload.as_bytes(), &sig) {
+        Ok(_) => Ok(Json(VerifyTeeResp { valid: true, reason: None })),
+        Err(e) => Ok(Json(VerifyTeeResp { valid: false, reason: Some(e.to_string()) })),
+    }
+}
+
+async fn get_tee_perf() -> Json<maranode_attestation::TeePerf> {
+    Json(measure_tee_perf())
 }
