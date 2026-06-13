@@ -27,6 +27,19 @@ The full inventory is in `HANDBOOK.md`. The short version:
 
 ---
 
+## What We Will Not Do
+
+A roadmap is more useful when it says no to things. These are deliberately excluded:
+
+- **Hosted cloud service.** Inference-as-a-service contradicts the value proposition.
+- **General-purpose operating system.** The Phase 3 appliance is purpose-built and minimal; we are not competing with Ubuntu.
+- **Model training infrastructure.** Maranode is inference-focused. Training is a different product category.
+- **Mobile applications.** Possibly a remote control app for a Maranode instance, but no inference on phones.
+- **Proprietary model formats.** We use GGUF and other open standards.
+- **Cryptocurrency, NFTs, or blockchain anything.** None of these solve problems Maranode has.
+
+---
+
 ## Phase 1 — Close the Gaps 
 
 These are items that are partially built or missing from an otherwise mature runtime. They block calling the Core feature set complete.
@@ -126,13 +139,3 @@ We will not commit to any of these now. The question to answer first is: what do
 
 ---
 
-## What We Will Not Do
-
-A roadmap is more useful when it says no to things. These are deliberately excluded:
-
-- **Hosted cloud service.** Inference-as-a-service contradicts the value proposition.
-- **General-purpose operating system.** The Phase 3 appliance is purpose-built and minimal; we are not competing with Ubuntu.
-- **Model training infrastructure.** Maranode is inference-focused. Training is a different product category.
-- **Mobile applications.** Possibly a remote control app for a Maranode instance, but no inference on phones.
-- **Proprietary model formats.** We use GGUF and other open standards.
-- **Cryptocurrency, NFTs, or blockchain anything.** None of these solve problems Maranode has.
