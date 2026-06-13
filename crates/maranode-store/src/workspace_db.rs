@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use maranode_common::workspace::Workspace;
@@ -199,7 +199,7 @@ impl WorkspaceDb {
             .query_row(
                 "SELECT dek FROM workspaces WHERE slug = ?1",
                 params![slug],
-                |row| row.get(0),
+                |row| row.get::<_, Option<String>>(0),
             )
             .optional()
             .context("reading dek")?

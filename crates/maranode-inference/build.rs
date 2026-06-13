@@ -217,7 +217,7 @@ fn bake_llama_version() {
         .and_then(|s| {
             let mut found = false;
             for line in s.lines() {
-                if line.trim() == "name = "llama-cpp-2"" {
+                if line.trim() == r#"name = "llama-cpp-2""# {
                     found = true;
                 }
                 if found && line.trim().starts_with("version = ") {

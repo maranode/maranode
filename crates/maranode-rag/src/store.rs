@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::crypt::{maybe_decrypt, maybe_encrypt};
 use crate::math::{blob_to_vec, dot, vec_to_blob};
 
-pub(crate) fn sha256_hex(data: &[u8]) -> String {
+pub fn sha256_hex(data: &[u8]) -> String {
     format!("{:x}", Sha256::digest(data))
 }
 
@@ -355,9 +355,9 @@ impl VectorStore {
                 title: row.get(6)?,
                 author: row.get(7)?,
                 page_count: row.get::<_, i64>(8)? as u32,
-                summary: row.get::<_, Option<String>>(9)?
-                    .map(|s| maybe_decrypt(dek_ref, &s))
-                    .transpose()?,
+                summary: row.get::<_, Option<String>>(9)?.map(|s| {
+                    maybe_decrypt(dek_ref, &s).unwrap_or(s)
+                }),
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -386,9 +386,9 @@ impl VectorStore {
                 title: row.get(6)?,
                 author: row.get(7)?,
                 page_count: row.get::<_, i64>(8)? as u32,
-                summary: row.get::<_, Option<String>>(9)?
-                    .map(|s| maybe_decrypt(dek_ref, &s))
-                    .transpose()?,
+                summary: row.get::<_, Option<String>>(9)?.map(|s| {
+                    maybe_decrypt(dek_ref, &s).unwrap_or(s)
+                }),
             })
         })?;
         Ok(rows.next().transpose()?)

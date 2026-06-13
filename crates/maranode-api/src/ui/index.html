@@ -859,7 +859,8 @@ async function loadModels() {
   tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>Loading…</p></div></td></tr>';
 
   try {
-    const d = await (await apiFetch('/v1/models/details')).json();
+    const resp = await (await apiFetch('/v1/models/details')).json();
+    const d = Array.isArray(resp) ? resp : (resp.data || []);
 
     // split by type
     const llms   = d.filter(m => !m.model_type || m.model_type === 'llm');

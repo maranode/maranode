@@ -14,6 +14,12 @@ use crate::state::AppState;
 
 pub struct UserCtx(pub User);
 
+impl UserCtx {
+    pub fn username(&self) -> &str {
+        &self.0.username
+    }
+}
+
 pub struct AdminCtx(pub User);
 
 #[derive(Debug)]

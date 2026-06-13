@@ -395,6 +395,7 @@ impl Default for DaemonConfig {
             dlp: DlpConfig::default(),
             tpm: TpmConfig::default(),
             smtp: None,
+            tee_encrypt_key: None,
         }
     }
 }

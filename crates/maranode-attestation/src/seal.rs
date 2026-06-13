@@ -24,7 +24,6 @@ use aes_gcm::{
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 const UNSEAL_FAIL_LOCKOUT: u32 = 5;
 const LOCKOUT_SECS: u64 = 60;
@@ -132,7 +131,7 @@ fn save_meta(blob_dir: &Path, meta: &SealMeta) -> Result<()> {
     Ok(())
 }
 
-fn tpm2_seal(data: &[u8], purpose: &str, blob_dir: &Path, pcr_list: &str) -> Result<Vec<u8>> {
+fn tpm2_seal(data: &[u8], purpose: &str, blob_dir: &Path, pcr_list: &str) -> Result<SealMeta> {
     use std::process::Command;
 
     let tmp = tempfile::Builder::new().prefix("mrn-tpm-").tempdir()?;
@@ -202,7 +201,7 @@ fn tpm2_seal(data: &[u8], purpose: &str, blob_dir: &Path, pcr_list: &str) -> Res
     };
     save_meta(blob_dir, &meta)?;
 
-    Ok(meta.sealed_at.into_bytes()) // return meta bytes as confirmation
+    Ok(meta)
 }
 
 fn tpm2_unseal(purpose: &str, blob_dir: &Path, pcr_list: Option<&str>) -> Result<Vec<u8>> {
@@ -337,7 +336,7 @@ pub(crate) fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], rounds: u32, out:
     let mut u = [0u8; 32];
 
     // U1 = PRF(Password, Salt || INT(i))
-    let mut mac = HmacSha256::new_from_slice(password).expect("HMAC key invalid");
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(password).expect("HMAC key invalid");
     mac.update(salt);
     mac.update(&1u32.to_be_bytes()); // block index 1
     let u1 = mac.finalize().into_bytes();
@@ -345,7 +344,7 @@ pub(crate) fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], rounds: u32, out:
     out.copy_from_slice(&u);
 
     for _ in 1..rounds {
-        let mut mac = HmacSha256::new_from_slice(password).expect("HMAC key invalid");
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(password).expect("HMAC key invalid");
         mac.update(&u);
         let un = mac.finalize().into_bytes();
         u.copy_from_slice(&un);

@@ -408,9 +408,10 @@ body {
   font-size: 13.5px;
   line-height: 1.45;
   word-break: break-word;
-  white-space: pre-wrap;
   position: relative;
 }
+
+.msg-row.user .bubble { white-space: pre-wrap; }
 
 .msg-row.user .bubble {
   background: linear-gradient(135deg, var(--accent), #5b8cff);
@@ -427,6 +428,61 @@ body {
   border: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
+
+.msg-row.assist .bubble p { margin: 0 0 0.55em; }
+.msg-row.assist .bubble p:last-child { margin-bottom: 0; }
+.msg-row.assist .bubble h1,
+.msg-row.assist .bubble h2,
+.msg-row.assist .bubble h3 { font-weight: 600; margin: 0.7em 0 0.3em; line-height: 1.25; }
+.msg-row.assist .bubble h1 { font-size: 1.15em; }
+.msg-row.assist .bubble h2 { font-size: 1.05em; }
+.msg-row.assist .bubble h3 { font-size: 0.95em; }
+.msg-row.assist .bubble ul,
+.msg-row.assist .bubble ol { margin: 0.3em 0 0.55em 1.25em; padding: 0; }
+.msg-row.assist .bubble li { margin: 0.15em 0; }
+.msg-row.assist .bubble code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+  background: rgba(0,0,0,0.07);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.msg-row.assist .bubble pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.msg-row.assist .bubble pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+}
+.msg-row.assist .bubble table {
+  border-collapse: collapse;
+  font-size: 0.88em;
+  margin: 0.5em 0;
+  width: 100%;
+}
+.msg-row.assist .bubble th,
+.msg-row.assist .bubble td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.msg-row.assist .bubble th { font-weight: 600; background: rgba(0,0,0,0.04); }
+.msg-row.assist .bubble blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.4em 0;
+  padding: 2px 10px;
+  color: var(--text-dim);
+}
+.msg-row.assist .bubble hr { border: none; border-top: 1px solid var(--border); margin: 0.6em 0; }
+.msg-row.assist .bubble a { color: var(--accent); text-decoration: none; }
+.msg-row.assist .bubble a:hover { text-decoration: underline; }
 
 .bubble-attachment {
   display: inline-flex;
@@ -666,6 +722,65 @@ body {
 #send-btn:hover    { opacity: 0.88; }
 #send-btn:active   { transform: scale(0.95); }
 #send-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* Generation settings panel */
+#gen-settings-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.gen-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+.gen-setting-item { display: flex; flex-direction: column; gap: 4px; }
+.gen-setting-item--full { grid-column: 1 / -1; }
+.gen-setting-item--check { justify-content: flex-end; padding-bottom: 2px; }
+.gen-rag-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; padding: 8px 0 0; border-top: 1px solid var(--border); }
+.gen-label { font-size: 11px; font-weight: 500; color: var(--text-dim); }
+.gen-val { font-family: var(--mono); color: var(--accent); margin-left: 4px; }
+.gen-check-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+.gen-number { width: 100%; padding: 4px 7px; font-size: 12px; }
+.gen-text   { width: 100%; padding: 4px 7px; font-size: 12px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+
+.gen-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.gen-settings-btn:hover,
+.gen-settings-btn.active { color: var(--accent); border-color: var(--accent); }
+
+/* Advanced section (workspace modals) */
+.adv-section { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; }
+.adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-weight: 500;
+}
+.adv-toggle:hover { color: var(--text); }
+.adv-chevron { transition: transform 0.18s; }
+.adv-body { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
 
 #input-hint {
   margin-top: 8px;

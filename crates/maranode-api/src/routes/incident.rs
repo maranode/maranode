@@ -123,8 +123,7 @@ async fn investigate(
 
     let id = incident.id.clone();
     let old_phase = incident.phase.to_string();
-    transition_phase(incident, IncidentPhase::Investigating, user.username(), req.note.clone(), &state.data_dir).await
-        .map_err(ApiError::internal)?;
+    transition_phase(incident, IncidentPhase::Investigating, user.username(), req.note.clone(), &state.data_dir).await?;
 
     state.audit.append(
         user.username(),
@@ -155,8 +154,7 @@ async fn resolve(
 
     let id = incident.id.clone();
     let old_phase = incident.phase.to_string();
-    transition_phase(incident, IncidentPhase::Resolved, user.username(), Some(req.summary.clone()), &state.data_dir).await
-        .map_err(ApiError::internal)?;
+    transition_phase(incident, IncidentPhase::Resolved, user.username(), Some(req.summary.clone()), &state.data_dir).await?;
 
     state.audit_frozen.store(false, Ordering::SeqCst);
 
@@ -222,8 +220,7 @@ async fn snapshot(
         guard.as_ref().map(|i| i.id.clone()).unwrap_or_else(|| "manual".to_string())
     };
 
-    let (path, sha256) = take_snapshot(&state, &incident_id).await
-        .map_err(ApiError::internal)?;
+    let (path, sha256) = take_snapshot(&state, &incident_id).await?;
 
     state.audit.append(
         user.username(),
@@ -261,8 +258,7 @@ async fn bg_generate(
     let id = cred.id.clone();
     let purpose = cred.purpose.clone();
 
-    save_break_glass_cred(&state.data_dir, &cred)
-        .map_err(ApiError::internal)?;
+    save_break_glass_cred(&state.data_dir, &cred)?;
 
     tracing::warn!(actor = user.username(), cred_id = %id, purpose = %purpose, "break-glass credential generated");
 

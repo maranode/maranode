@@ -13,6 +13,28 @@ function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function renderMd(text) {
+  if (typeof marked === 'undefined') return esc(text);
+  return marked.parse(String(text ?? ''), { gfm: true, breaks: false });
+}
+
+function toggleGenSettings() {
+  const panel = $('gen-settings-panel');
+  const btn   = $('gen-settings-toggle');
+  const open  = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  btn.classList.toggle('active', !open);
+}
+
+function toggleAdv(id) {
+  const body    = $(id);
+  const section = body.closest('.adv-section');
+  const chevron = section.querySelector('.adv-chevron');
+  const open    = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  chevron.style.transform = open ? '' : 'rotate(180deg)';
+}
+
 function hasCitationMarkers(text) {
   return /\[\d[\d\s,;p\.]*\]/.test(text);
 }
@@ -201,6 +223,7 @@ async function checkHealth() {
   if (ragAvailable) {
     $('badge-rag').style.display = '';
     $('rag-hint').style.display = 'inline-flex';
+    $('gen-rag-options').style.display = '';
     loadCollectionSelector();
   } else {
     $('badge-rag').style.display = 'none';
@@ -245,7 +268,8 @@ async function loadModels() {
   tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>Loading…</p></div></td></tr>';
 
   try {
-    const d = await (await apiFetch('/v1/models/details')).json();
+    const resp = await (await apiFetch('/v1/models/details')).json();
+    const d = Array.isArray(resp) ? resp : (resp.data || []);
 
     const llms   = d.filter(m => !m.model_type || m.model_type === 'llm');
     const embeds = d.filter(m => m.model_type === 'embedding');
@@ -478,7 +502,9 @@ function appendBubble(role, content, sources, attachment) {
   row.className = 'msg-row ' + (role === 'user' ? 'user' : 'assist');
 
   const cleanContent = role === 'user' ? content : cleanDisplayText(content);
-  const contentHtml = linkCitations(esc(cleanContent), sources);
+  const contentHtml = role === 'user'
+    ? linkCitations(esc(cleanContent), sources)
+    : linkCitations(renderMd(cleanContent), sources);
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
@@ -583,13 +609,35 @@ async function sendMessage() {
 
   const selectedCollection = $('topbar-collection')?.value || '';
   const ragEnabled = ragAvailable;
+
+  const temperature   = parseFloat($('gen-temperature')?.value ?? '0.7');
+  const maxTokens     = parseInt($('gen-max-tokens')?.value ?? '2048', 10);
+  const seedRaw       = $('gen-seed')?.value.trim();
+  const deterministic = $('gen-deterministic')?.checked ?? false;
+  const stopRaw       = $('gen-stop')?.value.trim();
+  const ragTopK       = parseInt($('gen-rag-topk')?.value ?? '5', 10);
+  const ragRequire    = $('gen-rag-require')?.checked ?? false;
+
+  const ragOpts = ragEnabled
+    ? {
+        ...(selectedCollection ? { collection: selectedCollection } : {}),
+        top_k: ragTopK,
+        ...(ragRequire ? { require_context: true } : {}),
+      }
+    : null;
+
   const body = {
     model,
     messages: conv.messages
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.content })),
     stream: true,
-    ...(ragEnabled ? { rag: selectedCollection ? { collection: selectedCollection } : {} } : {}),
+    temperature,
+    max_tokens: maxTokens,
+    ...(deterministic ? { deterministic: true } : {}),
+    ...(seedRaw ? { seed: parseInt(seedRaw, 10) } : {}),
+    ...(stopRaw ? { stop: stopRaw.split(',').map(s => s.trim()).filter(Boolean) } : {}),
+    ...(ragOpts ? { rag: ragOpts } : {}),
   };
 
   try {
@@ -634,7 +682,7 @@ async function sendMessage() {
           const delta = chunk.choices?.[0]?.delta?.content;
           if (delta) {
             reply += delta;
-            textNode.textContent = cleanDisplayText(reply);
+            textNode.innerHTML = renderMd(cleanDisplayText(reply));
             bubble.closest('.msg-row').parentElement.scrollTop = 99999;
           }
           if (chunk.choices?.[0]?.finish_reason === 'stop' && chunk.sources) {
@@ -645,7 +693,7 @@ async function sendMessage() {
     }
 
     const cleanReply = cleanDisplayText(reply);
-    textNode.innerHTML = linkCitations(esc(cleanReply), sources);
+    textNode.innerHTML = linkCitations(renderMd(cleanReply), sources);
 
     if (sources.length) {
       bubble.appendChild(buildSourcesEl(sources));
@@ -674,16 +722,22 @@ $('chat-input').addEventListener('input', function () {
   this.style.height = Math.min(this.scrollHeight, 160) + 'px';
 });
 
-document.getElementById('rag-file-input').addEventListener('change', function () {
-  const f = this.files[0];
+function updateRagFileLabel(files) {
   const zone = $('rag-drop-zone');
-  if (f) {
-    $('rag-file-label').textContent = f.name;
+  if (!files || files.length === 0) {
+    $('rag-file-label').textContent = 'Click to choose files, or drag & drop';
+    zone.classList.remove('has-file');
+  } else if (files.length === 1) {
+    $('rag-file-label').textContent = files[0].name;
     zone.classList.add('has-file');
   } else {
-    $('rag-file-label').textContent = 'Click to choose a file, or drag & drop';
-    zone.classList.remove('has-file');
+    $('rag-file-label').textContent = `${files.length} files selected`;
+    zone.classList.add('has-file');
   }
+}
+
+document.getElementById('rag-file-input').addEventListener('change', function () {
+  updateRagFileLabel(this.files);
 });
 
 const ragZone = $('rag-drop-zone');
@@ -692,13 +746,12 @@ ragZone.addEventListener('dragleave', ()  => ragZone.classList.remove('drag-over
 ragZone.addEventListener('drop', e => {
   e.preventDefault();
   ragZone.classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (!f) return;
+  const dropped = e.dataTransfer.files;
+  if (!dropped.length) return;
   const dt = new DataTransfer();
-  dt.items.add(f);
+  for (const f of dropped) dt.items.add(f);
   $('rag-file-input').files = dt.files;
-  $('rag-file-label').textContent = f.name;
-  ragZone.classList.add('has-file');
+  updateRagFileLabel(dt.files);
 });
 
 async function loadCollections() {
@@ -841,19 +894,50 @@ async function ingestDocument() {
   const collection = sel.value === '__new__'
     ? ($('rag-collection-new').value.trim() || 'default')
     : (sel.value || 'default');
-  const source     = $('rag-source').value.trim();
-  const file       = $('rag-file-input').files[0];
-  const text       = $('rag-text-input').value.trim();
+  const source    = $('rag-source').value.trim();
+  const files     = $('rag-file-input').files;
+  const text      = $('rag-text-input').value.trim();
 
-  if (!file && !text) { toast('Choose a file or paste text', 'err'); return; }
+  if (!files.length && !text) { toast('Choose a file or paste text', 'err'); return; }
 
   const btn = $('rag-ingest-btn');
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Adding…';
 
+  function resetForm() {
+    $('rag-source').value = '';
+    $('rag-text-input').value = '';
+    $('rag-file-input').value = '';
+    updateRagFileLabel(null);
+    $('rag-collection-new').value = '';
+    $('rag-collection-new').style.display = 'none';
+    loadCollections();
+    loadCollectionSelector();
+  }
+
   try {
-    let data;
-    if (file) {
+    if (files.length > 1) {
+      const form = new FormData();
+      for (const f of files) form.append('file', f, f.name);
+      form.append('collection', collection);
+      const res = await fetch('/v1/rag/documents/upload/batch', { method: 'POST', body: form });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error?.message || `HTTP ${res.status}`);
+      }
+      const results = await res.json();
+      const ok  = results.filter(r => r.ok);
+      const bad = results.filter(r => !r.ok);
+      const totalChunks = ok.reduce((s, r) => s + (r.chunks || 0), 0);
+      if (ok.length) {
+        toast(`${ok.length} file${ok.length > 1 ? 's' : ''} added to "${collection}" — ${totalChunks} chunks`, 'ok');
+      }
+      if (bad.length) {
+        bad.forEach(r => toast(`${r.filename}: ${r.error}`, 'err'));
+      }
+      resetForm();
+    } else if (files.length === 1) {
+      const file = files[0];
       const form = new FormData();
       form.append('file', file, file.name);
       form.append('collection', collection);
@@ -863,24 +947,18 @@ async function ingestDocument() {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error?.message || `HTTP ${res.status}`);
       }
-      data = await res.json();
+      const data = await res.json();
+      toast(`Added to "${data.collection}" — ${data.chunks} chunks indexed`, 'ok');
+      resetForm();
     } else {
-      data = await (await apiFetch('/v1/rag/documents', {
+      const data = await (await apiFetch('/v1/rag/documents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ collection, source: source || 'pasted-text', text }),
       })).json();
+      toast(`Added to "${data.collection}" — ${data.chunks} chunks indexed`, 'ok');
+      resetForm();
     }
-    toast(`Added to "${data.collection}" - ${data.chunks} chunks indexed`, 'ok');
-    $('rag-source').value = '';
-    $('rag-text-input').value = '';
-    $('rag-file-input').value = '';
-    $('rag-file-label').textContent = 'Click to choose a file, or drag & drop';
-    $('rag-drop-zone').classList.remove('has-file');
-    $('rag-collection-new').value = '';
-    $('rag-collection-new').style.display = 'none';
-    loadCollections();
-    loadCollectionSelector();
   } catch (e) {
     toast('Failed: ' + e.message, 'err');
   } finally {
@@ -1744,6 +1822,13 @@ function openNewWorkspaceModal() {
   $('ws-new-prompt').value = '';
   $('ws-new-custom-key').value = '';
   $('ws-new-custom-key').style.display = 'none';
+  $('ws-new-max-req').value = '';
+  $('ws-new-max-models').value = '';
+  $('ws-new-max-mem').value = '';
+  $('ws-new-netns').checked = false;
+  $('ws-new-adv').style.display = 'none';
+  const advChevron = document.querySelector('#ws-new-modal .adv-chevron');
+  if (advChevron) advChevron.style.transform = '';
   document.querySelector('input[name="ws-protection"][value="open"]').checked = true;
   $('ws-new-modal').style.display = 'flex';
   setTimeout(() => $('ws-new-slug').focus(), 50);
@@ -1776,6 +1861,15 @@ async function createWorkspace() {
   if (modelsRaw) body.model_allowlist = modelsRaw.split(',').map(s => s.trim()).filter(Boolean);
   if (rpmRaw)    body.rate_limit_rpm  = parseInt(rpmRaw, 10);
   if (prompt)    body.system_prompt   = prompt;
+
+  const maxReqRaw    = $('ws-new-max-req').value.trim();
+  const maxModRaw    = $('ws-new-max-models').value.trim();
+  const maxMemRaw    = $('ws-new-max-mem').value.trim();
+  const netns        = $('ws-new-netns').checked;
+  if (maxReqRaw) body.max_concurrent_requests = parseInt(maxReqRaw, 10);
+  if (maxModRaw) body.max_models              = parseInt(maxModRaw, 10);
+  if (maxMemRaw) body.max_memory_bytes        = parseInt(maxMemRaw, 10) * 1024 * 1024;
+  if (netns)     body.net_namespace           = true;
 
   try {
     const d = await (await adminFetch('/v1/workspaces', {
@@ -1852,6 +1946,12 @@ function openEditWorkspaceModal(slug) {
   $('ws-edit-clear-prompt').checked = false;
   $('ws-edit-new-key').value = '';
   $('ws-edit-new-key').style.display = 'none';
+  $('ws-edit-max-req').value    = ws.max_concurrent_requests != null ? ws.max_concurrent_requests : '';
+  $('ws-edit-max-models').value = ws.max_models != null ? ws.max_models : '';
+  $('ws-edit-max-mem').value    = ws.max_memory_bytes != null ? Math.round(ws.max_memory_bytes / 1024 / 1024) : '';
+  $('ws-edit-adv').style.display = 'none';
+  const advChevron = document.querySelector('#ws-edit-modal .adv-chevron');
+  if (advChevron) advChevron.style.transform = '';
   document.querySelector('input[name="ws-edit-protection"][value="keep"]').checked = true;
   $('ws-edit-modal').style.display = 'flex';
   setTimeout(() => $('ws-edit-name').focus(), 50);
@@ -1895,6 +1995,16 @@ async function saveEditWorkspace() {
   } else if (promptVal) {
     body.system_prompt = promptVal;
   }
+
+  const maxReqRaw = $('ws-edit-max-req').value.trim();
+  const maxModRaw = $('ws-edit-max-models').value.trim();
+  const maxMemRaw = $('ws-edit-max-mem').value.trim();
+  if (maxReqRaw) body.max_concurrent_requests = parseInt(maxReqRaw, 10);
+  else           body.clear_max_concurrent_requests = true;
+  if (maxModRaw) body.max_models = parseInt(maxModRaw, 10);
+  else           body.clear_max_models = true;
+  if (maxMemRaw) body.max_memory_bytes = parseInt(maxMemRaw, 10) * 1024 * 1024;
+  else           body.clear_max_memory_bytes = true;
 
   try {
     const d = await (await adminFetch(`/v1/workspaces/${_editingSlug}`, {

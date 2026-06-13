@@ -1,3 +1,5 @@
+use base64::Engine;
+
 use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -48,15 +50,13 @@ async fn generate_key(
     user: UserCtx,
     Json(req): Json<GenerateKeyRequest>,
 ) -> Result<Json<GenerateKeyResponse>, ApiError> {
-    let (privkey_hex, pubkey_b64) = generate_hold_key(&state.data_dir)
-        .map_err(ApiError::internal)?;
+    let (privkey_hex, pubkey_b64) = generate_hold_key(&state.data_dir)?;
 
     let mut tpm_sealed = false;
     if req.tpm_seal {
         let pass = req.tpm_passphrase.as_deref().unwrap_or("");
-        let key_bytes = hex::decode(&privkey_hex).map_err(ApiError::internal)?;
-        maranode_attestation::seal(&key_bytes, "hold-key", &state.data_dir, None, pass)
-            .map_err(ApiError::internal)?;
+        let key_bytes = hex::decode(&privkey_hex)?;
+        maranode_attestation::seal(&key_bytes, "hold-key", &state.data_dir, None, pass)?;
         tpm_sealed = true;
     }
 
@@ -125,8 +125,7 @@ async fn place(
 
     if req.tpm_seal && key_hex.is_none() {
         let pass = req.tpm_passphrase.as_deref().unwrap_or("");
-        let bytes = maranode_attestation::unseal("hold-key", &state.data_dir, pass)
-            .map_err(|e| ApiError::internal(e))?;
+        let bytes = maranode_attestation::unseal("hold-key", &state.data_dir, pass)?;
         key_hex = Some(hex::encode(&bytes));
     }
 
@@ -140,7 +139,7 @@ async fn place(
         req.expires_at,
         key_hex.as_deref(),
         req.tpm_seal,
-    ).map_err(ApiError::internal)?;
+    )?;
 
     state.audit.append(
         user.username(),
@@ -222,7 +221,7 @@ async fn sign_release(
 async fn list(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let holds = list_holds(&state.data_dir).map_err(ApiError::internal)?;
+    let holds = list_holds(&state.data_dir)?;
     let active: Vec<_> = holds.iter().filter(|h| h.is_active()).collect();
     Ok(Json(serde_json::json!({
         "total": holds.len(),

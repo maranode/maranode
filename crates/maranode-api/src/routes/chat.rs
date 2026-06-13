@@ -359,6 +359,7 @@ async fn run(
                         total_tokens: 0,
                     },
                     sources: Some(Vec::new()),
+                    receipt: None,
                 };
                 return Ok(Json(resp).into_response());
             }
@@ -439,7 +440,7 @@ async fn run(
         request_id: request_id.clone(),
         model: model_id.clone(),
         model_path,
-        messages,
+        messages: messages.clone(),
         temperature: eff_temperature,
         max_tokens: req.max_tokens,
         stop_sequences: req.stop.unwrap_or_default(),

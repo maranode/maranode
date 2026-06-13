@@ -103,4 +103,16 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<hex::FromHexError> for ApiError {
+    fn from(e: hex::FromHexError) -> Self {
+        Self::internal(e.to_string())
+    }
+}
+
+impl From<base64::DecodeError> for ApiError {
+    fn from(e: base64::DecodeError) -> Self {
+        Self::internal(e.to_string())
+    }
+}
+
 pub type ApiResult<T> = Result<T, ApiError>;

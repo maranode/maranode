@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/rag/documents", post(ingest_document))
         .route("/v1/rag/documents/upload", post(upload_document))
+        .route("/v1/rag/documents/upload/batch", post(upload_documents_batch))
         .route(
             "/v1/rag/documents/:id",
             get(get_document).delete(delete_document),
@@ -139,6 +140,8 @@ impl SummarizeFn for EngineSummarizer {
             temperature: 0.3,
             stop_sequences: vec![],
             stream: false,
+            seed: None,
+            deterministic: false,
         };
         let resp = self.engine.generate(req).await?;
         Ok(resp.content.trim().to_string())
@@ -342,6 +345,130 @@ async fn upload_document(
         pages: stats.pages,
         summary: stats.summary,
     }))
+}
+
+#[derive(Debug, Serialize)]
+struct BatchIngestItem {
+    filename: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pages: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn upload_documents_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> ApiResult<Json<Vec<BatchIngestItem>>> {
+    check_ingest_permission(&headers, &state)?;
+    let rag = require_rag(&state)?;
+
+    struct FileEntry {
+        filename: String,
+        bytes: Vec<u8>,
+    }
+
+    let mut files: Vec<FileEntry> = Vec::new();
+    let mut collection: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => {
+                let fname = field.file_name().map(str::to_string).unwrap_or_else(|| "upload".into());
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::bad_request(format!("reading file: {e}")))?
+                    .to_vec();
+                files.push(FileEntry { filename: fname, bytes });
+            }
+            Some("collection") => {
+                collection = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError::bad_request(format!("reading collection: {e}")))?,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if files.is_empty() {
+        return Err(ApiError::bad_request("no files provided"));
+    }
+
+    let col = collection.unwrap_or_else(|| rag.default_collection().to_string());
+    let summarizer = make_summarizer(&state);
+
+    let mut results = Vec::with_capacity(files.len());
+    for entry in files {
+        if entry.bytes.is_empty() {
+            results.push(BatchIngestItem {
+                filename: entry.filename,
+                ok: false,
+                document_id: None,
+                collection: None,
+                chunks: None,
+                pages: None,
+                error: Some("file is empty".into()),
+            });
+            continue;
+        }
+
+        match rag
+            .ingest_bytes(&col, &entry.filename, &entry.bytes, &entry.filename, summarizer.as_deref())
+            .await
+        {
+            Ok(stats) => {
+                let _ = state
+                    .audit
+                    .append(
+                        "api",
+                        AuditEvent::RagDocumentIngested {
+                            collection: stats.collection.clone(),
+                            source: entry.filename.clone(),
+                            chunks: stats.chunks,
+                        },
+                    )
+                    .await;
+                results.push(BatchIngestItem {
+                    filename: entry.filename,
+                    ok: true,
+                    document_id: Some(stats.document_id),
+                    collection: Some(stats.collection),
+                    chunks: Some(stats.chunks),
+                    pages: Some(stats.pages),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                results.push(BatchIngestItem {
+                    filename: entry.filename,
+                    ok: false,
+                    document_id: None,
+                    collection: None,
+                    chunks: None,
+                    pages: None,
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    }
+
+    Ok(Json(results))
 }
 
 #[derive(Debug, Serialize)]

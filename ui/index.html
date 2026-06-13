@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maranode</title>
   <link rel="stylesheet" href="/ui/assets/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" defer></script>
 </head>
 <body>
 
@@ -147,6 +148,46 @@
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
           </button>
         </div>
+        <div id="gen-settings-panel" style="display:none">
+          <div class="gen-settings-grid">
+            <div class="gen-setting-item">
+              <label class="gen-label">Temperature <span id="gen-temp-val" class="gen-val">0.7</span></label>
+              <input type="range" id="gen-temperature" min="0" max="2" step="0.05" value="0.7"
+                oninput="$('gen-temp-val').textContent = (+this.value).toFixed(2); $('gen-deterministic').checked = false">
+            </div>
+            <div class="gen-setting-item">
+              <label class="gen-label">Max tokens</label>
+              <input type="number" id="gen-max-tokens" value="2048" min="64" max="32768" step="64" class="gen-number">
+            </div>
+            <div class="gen-setting-item">
+              <label class="gen-label">Seed <span class="field-label-hint">(blank = random)</span></label>
+              <input type="number" id="gen-seed" placeholder="e.g. 42" min="0" class="gen-number">
+            </div>
+            <div class="gen-setting-item gen-setting-item--check">
+              <label class="gen-check-label">
+                <input type="checkbox" id="gen-deterministic"
+                  onchange="if(this.checked){$('gen-temperature').value=0;$('gen-temp-val').textContent='0.00';$('gen-seed').value=0}">
+                Deterministic <span class="field-label-hint">(temp=0, seed=0)</span>
+              </label>
+            </div>
+            <div class="gen-setting-item gen-setting-item--full">
+              <label class="gen-label">Stop sequences <span class="field-label-hint">(comma-separated)</span></label>
+              <input type="text" id="gen-stop" placeholder='e.g. "###, [END]"' class="gen-text">
+            </div>
+            <div id="gen-rag-options" style="display:none" class="gen-setting-item gen-setting-item--full gen-rag-row">
+              <div class="gen-setting-item">
+                <label class="gen-label">RAG top-K results</label>
+                <input type="number" id="gen-rag-topk" value="5" min="1" max="20" class="gen-number">
+              </div>
+              <div class="gen-setting-item gen-setting-item--check">
+                <label class="gen-check-label">
+                  <input type="checkbox" id="gen-rag-require">
+                  Require context <span class="field-label-hint">(reject if no hits)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="input-hint">
           <span><kbd>Enter</kbd> to send</span>
           <span><kbd>Shift+Enter</kbd> for new line</span>
@@ -154,6 +195,10 @@
             <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>
             <span id="rag-hint-text">Knowledge base</span>
           </span>
+          <button id="gen-settings-toggle" class="gen-settings-btn" onclick="toggleGenSettings()" title="Generation settings">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+            <span id="gen-settings-label">Generation</span>
+          </button>
         </div>
       </div>
     </div>
@@ -237,12 +282,12 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
                 <input type="text" id="rag-source" placeholder="e.g. annual-report-2024.pdf">
               </div>
               <div>
-                <label class="field-label">File <span class="field-label-hint">.txt · .md · .csv · .pdf</span></label>
-                <input type="file" id="rag-file-input" accept=".txt,.md,.csv,.log,.rst,.pdf" style="display:none">
+                <label class="field-label">Files <span class="field-label-hint">.txt · .md · .csv · .pdf</span></label>
+                <input type="file" id="rag-file-input" accept=".txt,.md,.csv,.log,.rst,.pdf" multiple style="display:none">
                 <div id="rag-drop-zone" onclick="document.getElementById('rag-file-input').click()">
                   <div class="drop-icon">📄</div>
-                  <div id="rag-file-label" class="drop-label">Click to choose a file, or drag & drop</div>
-                  <div class="drop-hint">Supported: .txt, .md, .csv, .log, .rst, .pdf</div>
+                  <div id="rag-file-label" class="drop-label">Click to choose files, or drag & drop</div>
+                  <div class="drop-hint">Supported: .txt, .md, .csv, .log, .rst, .pdf · Multiple files allowed</div>
                 </div>
               </div>
               <div>
@@ -578,6 +623,32 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
       <label class="field-label">System prompt <span class="field-label-hint">(optional override)</span></label>
       <textarea id="ws-new-prompt" rows="3" placeholder="You are a helpful assistant for…" class="textarea-mono"></textarea>
     </div>
+    <div class="adv-section">
+      <button type="button" class="adv-toggle" onclick="toggleAdv('ws-new-adv')">
+        <svg class="adv-chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        Advanced
+      </button>
+      <div id="ws-new-adv" class="adv-body" style="display:none">
+        <div>
+          <label class="field-label">Max concurrent requests <span class="field-label-hint">(blank = unlimited)</span></label>
+          <input type="number" id="ws-new-max-req" placeholder="10" min="1">
+        </div>
+        <div>
+          <label class="field-label">Max models loaded <span class="field-label-hint">(blank = unlimited)</span></label>
+          <input type="number" id="ws-new-max-models" placeholder="3" min="1">
+        </div>
+        <div>
+          <label class="field-label">Max memory <span class="field-label-hint">(MB, blank = unlimited)</span></label>
+          <input type="number" id="ws-new-max-mem" placeholder="8192" min="1">
+        </div>
+        <div>
+          <label class="gen-check-label" style="font-size:12px">
+            <input type="checkbox" id="ws-new-netns">
+            Network namespace isolation <span class="field-label-hint">(Linux only)</span>
+          </label>
+        </div>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeNewWorkspaceModal()">Cancel</button>
       <button class="btn btn-primary"   onclick="createWorkspace()">Create</button>
@@ -635,6 +706,26 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
       <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-dim);cursor:pointer">
         <input type="checkbox" id="ws-edit-clear-prompt"> Clear system prompt (reset to global default)
       </label>
+    </div>
+    <div class="adv-section">
+      <button type="button" class="adv-toggle" onclick="toggleAdv('ws-edit-adv')">
+        <svg class="adv-chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        Advanced
+      </button>
+      <div id="ws-edit-adv" class="adv-body" style="display:none">
+        <div>
+          <label class="field-label">Max concurrent requests <span class="field-label-hint">(blank = unlimited)</span></label>
+          <input type="number" id="ws-edit-max-req" placeholder="10" min="1">
+        </div>
+        <div>
+          <label class="field-label">Max models loaded <span class="field-label-hint">(blank = unlimited)</span></label>
+          <input type="number" id="ws-edit-max-models" placeholder="3" min="1">
+        </div>
+        <div>
+          <label class="field-label">Max memory <span class="field-label-hint">(MB, blank = unlimited)</span></label>
+          <input type="number" id="ws-edit-max-mem" placeholder="8192" min="1">
+        </div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeEditWorkspaceModal()">Cancel</button>

@@ -28,7 +28,12 @@ pub async fn run(host: &str) -> Result<()> {
         Ok(r) => r.json::<serde_json::Value>().await.unwrap_or_default(),
         Err(_) => serde_json::Value::Null,
     };
-    let model_count = models.as_array().map(|a| a.len()).unwrap_or(0);
+    let model_count = models
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|a| a.len())
+        .or_else(|| models.as_array().map(|a| a.len()))
+        .unwrap_or(0);
 
     let version = health["version"].as_str().unwrap_or("?");
     let air_gap = health["air_gap"].as_bool().unwrap_or(false);

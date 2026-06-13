@@ -26,7 +26,11 @@ pub async fn take_snapshot(state: &AppState, incident_id: &str) -> Result<(Strin
 
     let workspace_list: Vec<String> = {
         let db = state.workspace_db.lock().await;
-        db.list().unwrap_or_default()
+        db.list()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|w| w.slug)
+            .collect()
     };
 
     let audit_seq = state.audit.seq().await;

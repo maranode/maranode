@@ -1,3 +1,5 @@
+use base64::Engine;
+
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -54,7 +56,6 @@ impl TeeEncryptKey {
     }
 
     pub fn decrypt_str(&self, b64: &str) -> Result<String> {
-        use base64::Engine;
         let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
         let pt = self.decrypt(&raw)?;
         Ok(String::from_utf8(pt)?)

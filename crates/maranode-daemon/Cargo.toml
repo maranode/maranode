@@ -36,3 +36,4 @@ tracing-subscriber = { workspace = true }
 clap         = { workspace = true }
 chrono       = { workspace = true }
 uuid         = { workspace = true }
+sha2         = { workspace = true }
