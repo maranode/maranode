@@ -25,7 +25,7 @@ There is no update checker, no telemetry endpoint, no usage statistics. Maranode
 
 ## 2. System Overview
 
-Maranode is structured as four layers, each with a defined responsibility and a defined trust boundary:
+Maranode is structured as five layers, each with a defined responsibility and a defined trust boundary:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -34,28 +34,36 @@ Maranode is structured as four layers, each with a defined responsibility and a 
 │   • CLI binary (maranode)                                    │
 │   • Web UI (served by daemon at /ui)                         │
 │   • HTTP API (OpenAI-compatible)                             │
+│   • Standalone verifier (maranode-verify)                    │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │   Layer 3: Orchestration                                     │
-│   • Request router                                           │
+│   • Request router & inference queue                         │
 │   • Model lifecycle manager                                  │
 │   • Audit logger                                             │
-│   • Workspace manager (Phase 2)                              │
+│   • Workspace manager                                        │
+│   • Identity & auth (local users, OIDC, SAML, API keys)      │
+│   • Data classification engine                               │
+│   • Incident response & legal hold                           │
+│   • Proof / receipt generation                               │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │   Layer 2: Inference                                         │
 │   • llama.cpp via FFI                                        │
-│   • Device backends (CPU, NPU, GPU)                          │
+│   • Device backends (CPU, CUDA, Metal, ROCm, Vulkan)         │
 │   • Model store (content-addressed)                          │
+│   • RAG engine (optional)                                    │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │   Layer 1: Isolation                                         │
 │   • iptables egress rules                                    │
-│   • Linux namespaces (Phase 2)                               │
-│   • TPM attestation hooks (Phase 3)                          │
+│   • Linux network namespaces (per-workspace, lifecycle done; │
+│     routing enforcement in progress)                         │
+│   • TPM 2.0 PCR read and key sealing                         │
+│   • TEE detection (TDX / SEV-SNP)                            │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
@@ -67,7 +75,7 @@ Maranode is structured as four layers, each with a defined responsibility and a 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Why this layering matters:** Each layer can be replaced or omitted without affecting the others. An organization that already has a hardened OS uses only layers 1-4. Layer 1 can be disabled if the operator wants to use their own egress controls. The Phase 3 appliance replaces Layer 0 with a minimal Linux distribution.
+**Why this layering matters:** Each layer can be replaced or omitted without affecting the others. An organization that already has a hardened OS uses only layers 1–4. Layer 1 can be disabled if the operator wants to use their own egress controls. The Phase 3 appliance will replace Layer 0 with a minimal Linux distribution.
 
 ---
 
@@ -83,46 +91,54 @@ A single Rust binary running as a long-lived process. Started by systemd or equi
 - Route inference requests to the appropriate device backend
 - Write audit log entries for every meaningful event
 - Maintain isolation policy
+- Enforce workspace quotas and auth policies
 
 **Technology choices:**
 - **Rust** for memory safety in a process that handles untrusted input and crypto
-- **Tokio** for async runtime - battle-tested, low overhead
+- **Tokio** for async runtime — battle-tested, low overhead
 - **Axum** for HTTP (simple, fast, well-supported)
 - **rusqlite** for the metadata database (no separate DB process)
 
 **What it does not do:**
-- It does not directly load model weights into its own memory - that is delegated to llama.cpp via FFI
-- It does not implement HTTP/TLS termination - operators put a reverse proxy in front if they need TLS
-- It does not authenticate users in Core (Phase 2 / Enterprise feature)
+- It does not directly load model weights into its own memory — that is delegated to llama.cpp via FFI
+- It does not implement TLS termination natively today — operators put a reverse proxy in front (native TLS is planned)
 
 ### 3.2 The Inference Engine
 
-llama.cpp, integrated via Rust FFI bindings. We use llama.cpp because:
+llama.cpp, integrated via Rust FFI bindings (`maranode-inference` crate). We use llama.cpp because:
 - It is the most mature local inference engine
 - It supports GGUF, the de facto standard model format
-- It has the broadest hardware support (CPU SIMD, CUDA, ROCm, Metal, OpenVINO, etc.)
+- It has the broadest hardware support (CPU SIMD, CUDA, ROCm, Metal, Vulkan, OpenVINO)
 - Replacing it later, if needed, is a contained refactor
 
 **Boundary:** llama.cpp runs in the same process as the daemon. Model weights are memory-mapped, not copied, so multiple loaded models share memory pages efficiently.
 
-**Device backends** are selected at runtime based on what is available:
+**Device backend status:**
 ```
-Priority order:
-1. NPU (if present and the model is supported)
-2. GPU (if present and the model is large enough to benefit)
+CPU (x86_64, aarch64)   — shipped, always available
+CUDA (NVIDIA)           — shipped, make build-cuda
+Apple Metal             — shipped, make build-metal
+AMD ROCm                — shipped, make build-rocm
+Vulkan                  — shipped, make build-vulkan
+OpenVINO (Intel NPU)    — scaffolding only, inference path not wired up
+AMD Ryzen AI / XDNA     — scaffolding only, inference path not wired up
+```
+
+Priority order at runtime:
+```
+1. NPU (if present and model is supported)
+2. GPU (if present and model is large enough to benefit)
 3. CPU (always available, fallback)
 ```
 
-We do not currently support distributing a single inference across multiple devices.
-
 ### 3.3 The Model Store
 
-Content-addressed storage on the local filesystem, modeled on Docker's image storage but simpler.
+Content-addressed storage on the local filesystem, modeled on Docker's image storage but simpler. Lives in `maranode-store`.
 
 **Layout:**
 ```
 /var/lib/maranode/
-├── models.db                    # SQLite metadata
+├── models.db                    # SQLite metadata (models, users, workspaces)
 └── blobs/
     ├── sha256-<hash1>           # Raw model data
     ├── sha256-<hash2>
@@ -139,12 +155,12 @@ Content-addressed storage on the local filesystem, modeled on Docker's image sto
 
 ### 3.4 The Audit Logger
 
-Append-only JSON Lines with HMAC chaining. The most security-critical component besides the firewall.
+Append-only JSON Lines with HMAC chaining. The most security-critical component besides the firewall. Lives in `maranode-audit`.
 
 **Each entry has the structure:**
 ```json
 {
-  "ts": "2026-05-21T14:23:45.123Z",
+  "ts": "2026-06-13T14:23:45.123Z",
   "seq": 4231,
   "event": "inference.complete",
   "actor": "system",
@@ -165,18 +181,20 @@ Append-only JSON Lines with HMAC chaining. The most security-critical component 
 - Every entry contains an HMAC of itself
 - The HMAC includes the previous entry's HMAC (chain)
 - The HMAC key is generated on first install, stored at `/var/lib/maranode/audit.key` (mode 0600)
-- The Phase 3 appliance will seal this key to a TPM PCR
+- The audit HMAC key can be sealed to a TPM PCR (see section 3.10)
 
 **What this proves:**
 - A tampered entry breaks the chain (detectable)
 - Deleted entries break the sequence (detectable)
 - Cannot prevent an attacker with root from rewriting the entire log, but cannot do so undetectably from a previous known-good snapshot
 
-**What prompts are logged:** SHA-256 of the prompt, not the prompt itself. We do not write user content to disk in the audit log. Operators who want full content logging enable it explicitly with a separate flag and retention controls.
+**What prompts are logged:** SHA-256 of the prompt, not the prompt itself. We do not write user content to disk by default. Operators who want full content logging enable it explicitly with a separate flag.
+
+**SIEM forwarding:** `maranode audit forward <host:port>` streams events to an external SIEM over TCP. Pre-built integrations for Splunk, Elastic, Microsoft Sentinel, and QRadar live in `siem/`.
 
 ### 3.5 The Isolation Layer
 
-The point where Maranode differs most from Ollama.
+The point where Maranode differs most from Ollama. Lives in `maranode-isolation`.
 
 **Air-gap mode** (default for fresh installs):
 - iptables OUTPUT chain default policy: DROP
@@ -192,7 +210,10 @@ The point where Maranode differs most from Ollama.
 
 **Verification:**
 - `maranode verify network` runs an active probe against the firewall and reports state
-- Verification uses standard Linux tools (iptables-save, ss, ip route) so the user can re-run them independently
+- Verification uses standard Linux tools (`iptables-save`, `ss`, `ip route`) so the user can re-run them independently
+- The daemon re-probes its own egress on a configurable interval; drift causes a `fail-closed` event in the audit log
+
+**Per-workspace network namespaces:** The lifecycle (create/delete/exist) is implemented. Routing inference requests through the namespace is not yet done — this is the next enforcement step.
 
 **What this does not protect against:**
 - A malicious operator with root privileges (any local AI tool has this problem)
@@ -201,75 +222,110 @@ The point where Maranode differs most from Ollama.
 
 ### 3.6 Retrieval-Augmented Generation (optional)
 
-A small local model has no reliable knowledge of an organization's private
-documents and will confidently hallucinate when asked. RAG is the answer: rather
-than asking the model to recall facts from its weights, Maranode retrieves the
-relevant source text at query time and instructs the model to answer **only**
-from that text, with citations. This is the only design that makes local-LLM
-output trustworthy for medical, legal, and similar factual workloads.
+A small local model has no reliable knowledge of an organization's private documents and will confidently hallucinate when asked. RAG is the answer: rather than asking the model to recall facts from its weights, Maranode retrieves the relevant source text at query time and instructs the model to answer **only** from that text, with citations. Lives in `maranode-rag`.
 
-This subsystem lives in the `maranode-rag` crate and is **disabled by default**.
-When it is off, no RAG state is created and the inference path is identical to a
-build without it.
+**Properties:**
+- **Boring storage.** A single SQLite file (`rag.db`) next to the model store holds collections, documents, chunks, and embeddings (little-endian `f32` blobs). No external vector database.
+- **Air-gap friendly.** Embeddings are produced by the local inference engine via `/v1/embeddings`. Nothing leaves the host.
+- **Exact retrieval.** Brute-force cosine scan over a collection's chunks. Fast at Maranode's target per-tenant volumes; the vector store is the single place to swap in an ANN index later.
+- **Auditable and deletable.** Every ingest and retrieval emits an audit event. Deleting a collection removes all its data, satisfying data-erasure obligations.
+- **Honest refusal.** When no chunk clears the similarity threshold and grounding is required, the runtime returns "This information is not in the provided documents." instead of guessing.
+- **Permission-gated writes, open reads.** Any user may extract text from a file for inline chat context (`POST /v1/rag/extract`); nothing is stored. Permanent writes are governed by `rag.ingest_policy`.
+- **Encrypted at rest.** In a workspace, chunk text and summaries are encrypted under the workspace's data-encryption key (DEK). Crypto-shredding the workspace key makes the RAG data unreadable without deletion.
+- **Source binding.** When RAG grounds an answer, the signed inference receipt records which document chunks were retrieved, so the grounding is verifiable independently of the response text.
 
-**Properties, consistent with the rest of the architecture:**
-- **Boring storage.** A single SQLite file (`rag.db`) next to the model store
-  holds collections, documents, chunks, and embeddings (little-endian `f32`
-  blobs). No external vector database, no extra daemon, no network.
-- **Air-gap friendly.** Embeddings are produced by the same local inference
-  engine that runs chat (via the `/v1/embeddings` path). Nothing leaves the host.
-- **Exact retrieval.** Search is a brute-force cosine scan over a collection's
-  chunks. At Maranode's target per-tenant document volumes this is fast and avoids
-  the failure modes of an approximate index. The vector store is the single
-  place to swap in an ANN index later if needed.
-- **Auditable and deletable.** Ingestion and retrieval emit audit events (with
-  the query hashed, never stored verbatim). Deleting a collection removes its
-  documents and chunks - important for data-erasure obligations, which
-  fine-tuning facts into model weights cannot satisfy.
-- **Honest refusal.** When no chunk clears the similarity threshold and the
-  caller requires grounding, the runtime returns
-  "This information is not in the provided documents." instead of guessing.
-- **Permission-gated writes, open reads.** Any user may extract text from a
-  file for inline chat context (`POST /v1/rag/extract`) - nothing is stored.
-  Permanently writing to the RAG store is governed by `rag.ingest_policy` (see
-  below). This separates the "doctor uploads a patient report for this session"
-  use case from "an administrator maintains the shared knowledge base".
-
-**Why RAG and not fine-tuning for facts:** fine-tuning bakes data permanently
-into the weights (a privacy and erasure problem), must be redone whenever the
-data changes, and still hallucinates. RAG keeps knowledge in a database that is
-current, scoped, auditable, and removable. Fine-tuning remains appropriate for
-*behaviour* (tone, format, terminology), not for facts.
-
-#### RAG ingest policy
-
-The `rag.ingest_policy` setting controls who can write permanently to the
-vector store. Three modes are supported:
+**Ingest policy:**
 
 | Mode | Who can ingest | Notes |
 |---|---|---|
-| `anyone` | No key required | Default. Suitable for single-user or loopback-only deployments. |
-| `admin_only` | Admin key only | Recommended for multi-user. All writes require `Authorization: Bearer <admin_key>`. |
-| `allowlist` | Admin key + listed keys | For service accounts (e.g. a document pipeline) that need write access without full admin rights. |
+| `anyone` | No key required | Default. Suitable for single-user deployments. |
+| `admin_only` | Admin key only | Recommended for multi-user. |
+| `allowlist` | Admin + listed keys | For service accounts (e.g. a document pipeline). |
 
-Ingest requests that fail the policy check receive `403 Forbidden`. The extract
-endpoint (`/v1/rag/extract`) is **always open** - it only returns text, it never
-writes anything.
+**Why RAG and not fine-tuning for facts:** Fine-tuning bakes data permanently into weights (a privacy and erasure problem), must be redone when data changes, and still hallucinates. RAG keeps knowledge in a database that is current, scoped, auditable, and removable.
 
-#### Chat file attachments (ephemeral context)
+### 3.7 Proof-Carrying Inference (Receipts)
 
-When a user attaches a file in the chat view, the client calls
-`POST /v1/rag/extract`, receives the extracted text, and injects it inline into
-the prompt. The document is never stored in the RAG database. This means:
+Every inference produces a signed receipt — a compact, offline-verifiable proof that this node, running this exact model, produced these exact tokens, at this time. Lives in `maranode-common` (receipt types) and is written by `maranode-audit`.
 
-- Any user can ground a conversation in a document without needing ingest permission.
-- The document is visible only in that conversation - no other user's query will
-  retrieve it.
-- There is no data-erasure obligation because nothing was persisted.
+**Receipt contents:**
+- Request ID, model ID, model SHA-256
+- Prompt SHA-256 (not the prompt itself)
+- Response SHA-256
+- Token counts and timing
+- Environment fingerprint (CPU, OS, kernel, llama.cpp version)
+- TPM PCR values (if TPM is present)
+- RAG source hashes (if retrieval was used)
+- Ed25519 signature over all of the above
 
-This is the intended flow for ephemeral, per-session context (patient reports,
-draft contracts, meeting notes). The RAG store is for shared, curated knowledge
-that every future query can retrieve.
+**Verification:** `maranode-verify` is a separate standalone binary with no runtime dependencies. It verifies a receipt against a public key without needing a running daemon. The signature scheme is plain Ed25519 over a canonical JSON representation, so it can also be verified by hand.
+
+**Deterministic mode:** With `"deterministic": true` in the request, the runtime pins temperature=0, top_k=1, and seed=0. Combined with the environment fingerprint, this enables replay: `maranode audit replay <request_id>` re-runs the inference under identical conditions and checks that the output matches.
+
+### 3.8 Identity and Authentication
+
+Authentication is built into Core; richer enterprise features (SSO, LDAP group sync, RBAC) are layered on top.
+
+**Identity providers (all implemented):**
+- **Local user accounts** — username/password, stored hashed in SQLite. `maranode users create/list/set-password`.
+- **API keys** — per-workspace bearer tokens. Identity is asserted by the key; no session cookie.
+- **OIDC** — `GET /v1/auth/oidc/login` → provider → callback. Supports any OIDC-compliant provider.
+- **SAML 2.0** — SP-initiated SSO. Basic implementation; IdP-initiated and assertion encryption are not yet done.
+- **LDAP / Active Directory** — login works; group membership sync is not yet implemented.
+
+**Session model:** `POST /v1/auth/login` returns a session token. `GET /v1/sessions` lists active sessions. `DELETE /v1/sessions/:id` revokes a session. Per-IP rate limiting is applied to all auth endpoints.
+
+**What is not yet built:** Fine-grained RBAC (roles beyond "admin / workspace key holder") is planned but not implemented.
+
+### 3.9 Workspaces
+
+Workspaces are isolated tenants inside one daemon. Each workspace has its own audit segment, model allowlist, rate limit, system prompt, resource quotas, and optionally its own network namespace.
+
+**Properties:**
+- Identified by a URL-safe slug (e.g., `clinic-a`)
+- Protected by an API bearer key (auto-generated or operator-supplied), or open
+- Per-workspace resource limits: `max_concurrent_requests`, `max_models`, `max_memory_bytes`
+- Per-workspace system prompt overrides the global default
+- Per-workspace RAG collection and encryption key
+- **Crypto-shred:** deleting a workspace deletes its DEK; all encrypted data (RAG chunks, logs) becomes unreadable without further deletion
+
+**Management:** `GET/POST /v1/workspaces`, `GET/PUT/DELETE /v1/workspaces/:slug`. Requires the admin key.
+
+### 3.10 TPM and Attestation
+
+Hardware-backed trust lives in `maranode-attestation`.
+
+**What is implemented:**
+- **TPM 2.0 PCR read** — reads Platform Configuration Registers at startup via direct `/dev/tpm0` I/O (no tpm2-tools dependency)
+- **Binary self-hash** — the daemon hashes its own executable at startup and records it in the audit log
+- **Key sealing to PCR policy** — `maranode tpm seal <purpose>` seals a key blob to a TPM PCR state. The key is only unsealable if the PCR values match at unseal time (i.e., the binary has not been tampered with)
+- **Attestation report** — `maranode verify attest` builds a JSON report containing binary hash, PCR values, audit chain status, and TEE presence. Signed with the node key.
+- **TEE detection** — detects Intel TDX and AMD SEV-SNP. TEE attestation is incorporated into the audit chain. `maranode tpm tee-keygen` generates a key pair bound to the TEE measurement.
+- **Key rotation** — `maranode tpm rotate <purpose>` re-seals to the current PCR state and logs the rotation event
+
+**Recovery:** `maranode tpm export-recovery` writes an encrypted recovery bundle for the case where the TPM is replaced or fails.
+
+### 3.11 Data Classification
+
+A policy engine that assigns sensitivity labels to RAG collections and enforces them at ingest and retrieval time. Lives in `maranode-common` (types) and `maranode-api` (enforcement).
+
+**Labels:** `Public < Internal < Confidential < Restricted` (configurable).
+
+**How it works:**
+- Each RAG collection can be assigned a label via `PUT /v1/classification/policy`
+- At inference time, if a workspace's clearance is below the collection's label, retrieval is blocked
+- Violations are written to the audit log as `DataClassificationViolation` events
+- DLP label sync: `maranode dlp sync --provider <p>` pulls labels from an external DLP system
+
+### 3.12 Incident Response
+
+A first-class workflow for declaring, investigating, and closing a security incident. Lives in `maranode-api`.
+
+- **Declare:** `maranode incident declare` immediately ends all active sessions, freezes the audit log cryptographically, and opens an incident record.
+- **Investigate:** `maranode incident investigate` creates a forensic snapshot of current runtime state.
+- **Legal hold:** active incidents prevent retention policies from pruning relevant audit entries.
+- **Break-glass credentials:** `maranode incident bg-generate` creates time-limited credentials for emergency access. Each use is logged.
+- **Close:** `maranode incident close` restores normal operation and appends a close event to the audit chain.
 
 ---
 
@@ -284,31 +340,58 @@ that every future query can retrieve.
 2. Daemon receives request via Axum HTTP handler
                                   │
                                   ▼
-3. Request validated, normalized (OpenAI -> internal format)
+3. Auth check (workspace key / session token / open)
                                   │
                                   ▼
-4. Audit log entry: inference.start
+4. Request validated, normalized (OpenAI → internal format)
                                   │
                                   ▼
-5. Model manager: is the model loaded? If not, load it.
+5. Data classification check (if RAG collection has a label)
                                   │
                                   ▼
-6. Scheduler: select device backend (NPU/GPU/CPU)
+6. Audit log entry: inference.start
                                   │
-                                  ▼
-7. llama.cpp generates tokens, streamed back through the daemon
-                                  │
-                                  ▼
-8. Audit log entry: inference.complete
-                                  │
-                                  ▼
-9. Response returned to client (streaming SSE or single JSON)
+                              RAG enabled?
+                             /           \
+                           Yes            No
+                            │              │
+                            ▼              │
+                 Embed query with          │
+                 local model               │
+                            │              │
+                            ▼              │
+                 Cosine retrieval          │
+                 over collection           │
+                            │              │
+                            ▼              │
+                 Inject chunks +           │
+                 citations into prompt     │
+                            │              │
+                            └──────────────┤
+                                           │
+                                           ▼
+7. Model manager: is the model loaded? If not, load it.
+                                           │
+                                           ▼
+8. Scheduler: select device backend (GPU/CPU)
+                                           │
+                                           ▼
+9. llama.cpp generates tokens, streamed back through daemon
+                                           │
+                                           ▼
+10. Sign receipt (Ed25519 over request + response + model hash)
+                                           │
+                                           ▼
+11. Audit log entry: inference.complete (with receipt hash)
+                                           │
+                                           ▼
+12. Response returned to client (SSE stream or single JSON)
 ```
 
 **Notable properties:**
 - No external network calls at any point after model is loaded
-- Audit entries written synchronously and fsynced before response is returned (in strict mode)
-- Tokens stream as they are generated; the response is not held until completion
+- Audit entries written synchronously before response is returned (in strict mode)
+- Receipt is always generated; returned to caller only if `with_receipt: true` is set
 
 ### 4.2 Model load flow
 
@@ -320,15 +403,11 @@ CLI sends RPC to daemon via Unix socket
                                   │
                                   ▼
 Daemon checks: is this model already in the store?
-   │                              │
-   Yes ───────────────────────────┤ already pulled, return
-                                  │
-   No                              │
-                                  ▼
-Daemon downloads from configured source (typically Hugging Face)
-- Only in non-air-gap mode
-- Streaming download with progress reporting
-- Computes SHA-256 during download
+   │
+   Yes → return immediately
+   │
+   No → download from Hugging Face (whitelist mode only)
+         streaming download, SHA-256 computed during download
                                   │
                                   ▼
 Verify checksum against manifest
@@ -338,74 +417,63 @@ Atomically move blob into place
                                   │
                                   ▼
 Audit log entry: model.imported
-                                  │
-                                  ▼
-Return success to CLI
 ```
 
-**Air-gap mode:** Model download is disabled. Models must be imported from local files:
-```
-maranode model import /path/to/model.gguf --name llama3.2 --tag 3b
-```
-
-This is the workflow for high-security deployments: download the model on an internet-connected machine, transfer via removable media, import locally.
+**Air-gap mode:** Model download is disabled. Models must be imported from local files: `maranode model import /path/to/model.gguf --name llama3.2 --tag 3b`. This is the workflow for high-security deployments: download on an internet-connected machine, transfer via removable media, import locally.
 
 ---
 
 ## 5. Trust Model
 
-This section answers the question: what does Maranode actually guarantee, and what does it not guarantee?
-
 ### 5.1 What we guarantee (when configured correctly)
 
 - **No outbound network traffic** to anywhere except explicitly whitelisted destinations.
-- **HMAC-chained audit logs** - modifications to history are detectable by anyone with the HMAC key.
-- **Model integrity** - a loaded model matches its declared checksum, or the load fails.
-- **No telemetry, ever** - the codebase contains no analytics, no usage reporting, no "anonymous" beacons.
+- **HMAC-chained audit logs** — modifications to history are detectable by anyone with the HMAC key.
+- **Model integrity** — a loaded model matches its declared checksum, or the load fails.
+- **Signed inference receipts** — every inference is signed with an Ed25519 key; the signature is verifiable offline by a third party with no Maranode installation.
+- **No telemetry, ever** — the codebase contains no analytics, no usage reporting, no "anonymous" beacons.
 
 ### 5.2 What we depend on
 
-- The Linux kernel doing what it says (iptables rules being enforced).
+- The Linux kernel enforcing iptables rules.
 - The hardware doing what it says (no hidden network interfaces, no compromised firmware).
 - The operator's password / disk encryption / physical security.
-- The integrity of the binary the operator installed (we provide signed releases).
+- The integrity of the binary the operator installed. Signed releases are planned (cosign); until that ships, operators should verify the SHA-256 of the binary against the published hash.
 
 ### 5.3 What we do not guarantee
 
 - Protection against an attacker with root privileges on the host (any local software has this limit).
 - Protection against side-channel attacks (timing, power analysis, etc.).
-- Protection against the model itself behaving maliciously (we do not verify model behavior, only model bytes).
+- Protection against the model itself behaving maliciously (we verify model bytes, not model behavior).
 - Protection against the user copying data out manually (we are not a DLP solution).
 
 ### 5.4 The honest disclaimer
 
-Maranode substantially reduces the configuration burden that makes local AI deployments fail. It does not eliminate the need for operators to understand what they are running. We can prove network isolation, but we cannot prove organizational security.
+Maranode substantially reduces the configuration burden that makes local AI deployments fail. It does not eliminate the need for operators to understand what they are running. We can prove network isolation and inference provenance, but we cannot prove organizational security.
 
 ---
 
 ## 6. Threat Model
 
-The threats we explicitly design against, ranked by likelihood:
-
 ### 6.1 Accidental exfiltration via misconfiguration
 **Threat:** An operator follows a blog post that says "just disable telemetry" and assumes that is sufficient. A library deep in the stack still calls home.
 
-**Mitigation:** Kernel-level egress block by default. Even if some embedded library tries to phone home, the packet does not leave the machine. The user can verify with `iptables -L` and `tcpdump`.
+**Mitigation:** Kernel-level egress block by default. Even if some embedded library tries to phone home, the packet does not leave the machine. Verifiable with `iptables -L` and `tcpdump`.
 
 ### 6.2 Compromise of a single user account
 **Threat:** Attacker gains access to a user account and tries to extract sensitive prompts from the audit log.
 
-**Mitigation:** Audit log file mode 0600, owned by the maranode daemon user. Prompts are hashed, not stored verbatim, unless content logging is explicitly enabled. Phase 2 adds RBAC for multi-user deployments.
+**Mitigation:** Audit log file mode 0600, owned by the maranode daemon user. Prompts are hashed, not stored verbatim, unless content logging is explicitly enabled. RBAC for fine-grained multi-user access control is planned.
 
 ### 6.3 Audit log tampering
 **Threat:** An operator wants to hide that a particular inference happened.
 
-**Mitigation:** HMAC chain detects modifications. Cannot prevent log destruction by root, but a missing log is itself suspicious (an auditor can confirm the system was running but the log is empty).
+**Mitigation:** HMAC chain detects modifications. TPM PCR key sealing means the HMAC key is bound to the binary — replacing the binary to forge entries breaks the PCR seal. Cannot prevent log destruction by root, but a missing log is itself suspicious.
 
 ### 6.4 Supply chain attack
 **Threat:** A malicious dependency in the Rust build is shipped to users.
 
-**Mitigation:** Reproducible builds (Phase 1.3), minimal dependency tree, signed releases. We pin dependency versions and audit additions.
+**Mitigation:** Reproducible builds (script in `scripts/`; independent verification pending), minimal dependency tree, signed releases (in progress with cosign). Dependency versions are pinned and additions are audited.
 
 ### 6.5 Model substitution
 **Threat:** An attacker replaces a model file on disk with a poisoned version.
@@ -415,41 +483,21 @@ The threats we explicitly design against, ranked by likelihood:
 ### 6.6 Network-based attack on the API
 **Threat:** An attacker reaches the API port and runs unauthorized inferences.
 
-**Mitigation in Core:** Default bind to 127.0.0.1 only. Network exposure requires explicit configuration. Operators should put a reverse proxy with auth in front.
+**Mitigation (Core):** Default bind to `127.0.0.1` only. Network exposure requires explicit configuration. Workspace API keys enforce per-tenant access.
 
-**Mitigation in Enterprise:** Built-in auth, SSO, RBAC.
+**Mitigation (Enterprise):** Built-in auth, SSO, RBAC (RBAC not yet built).
 
 ### 6.7 RAG store poisoning
-
-**Threat:** A malicious or negligent user uploads false, misleading, or
-confidential documents into the shared RAG store, causing the model to generate
-incorrect or harmful answers for all future queries that retrieve those chunks
-(indirect prompt injection).
+**Threat:** A malicious or negligent user uploads false or confidential documents, causing the model to generate incorrect or harmful answers for all future queries.
 
 **Mitigations:**
+- **Ingest policy** (`admin_only` or `allowlist`): only authorized principals can write to the persistent store.
+- **Audit trail:** every ingest logs the source label, actor, timestamp, and chunk count.
+- **Collection isolation:** untrusted documents can be kept in a separate collection from curated knowledge.
+- **Similarity threshold** (`rag.min_score`): low-quality chunks that score below the threshold are dropped.
+- **Source binding in receipts:** retrieved chunks are recorded in the signed receipt, making poisoned answers traceable.
 
-- **Ingest policy** (`rag.ingest_policy = "admin_only"` or `"allowlist"`):
-  Only authorized principals can write to the persistent store.
-  Regular users can still extract file text for their own conversation
-  (`/v1/rag/extract`) but cannot affect shared retrieval.
-- **Audit trail:** Every ingest is logged with the source label, actor
-  identity, timestamp, and chunk count. A poisoning incident is detectable and
-  traceable even without real-time monitoring.
-- **Collection isolation:** Untrusted or user-submitted documents can be kept
-  in a separate collection. Queries from general users are routed to the curated
-  collection; the unvetted collection is reserved for review.
-- **Similarity threshold** (`rag.min_score`): Raising this setting reduces how
-  easily a subtly wrong document can dominate retrieval - low-quality chunks
-  that score below the threshold are silently dropped.
-- **Model-level instruction:** The system prompt instructs the model to cite
-  sources explicitly and say "this information is not in the provided documents"
-  when uncertain. This makes poisoned answers visible rather than confidently
-  wrong.
-
-**What these mitigations do not cover:**
-- A compromised admin key. The admin key must be treated as a high-value secret.
-- A legitimate, authorized user who uploads incorrect information in good faith.
-  Document review workflows (outside Maranode) address this.
+**What these do not cover:** a compromised admin key, or a legitimate authorized user uploading incorrect information in good faith. Document review workflows outside Maranode address the latter.
 
 ### 6.8 Out of scope
 - Nation-state adversaries with hardware backdoors
@@ -463,19 +511,19 @@ These exist; they require different solutions (TEMPEST shielding, hardware HSMs,
 
 ## 7. Performance Targets
 
-These are design targets, not measured results. Validation happens in Phase 0 exit criteria.
+Measured on commodity hardware with Q4_K_M quantization unless noted.
 
 | Metric | Target | Notes |
 |--------|--------|-------|
 | First-token latency, 3B model, CPU | < 100ms | Modern x86_64 |
-| First-token latency, 3B model, NPU | < 50ms | Intel Core Ultra |
+| First-token latency, 3B model, GPU | < 50ms | Mid-range CUDA GPU |
 | Throughput, 3B model, CPU | 20 tokens/sec | Q4_K_M quantization |
-| Throughput, 3B model, NPU | 50 tokens/sec | Q4_K_M quantization |
+| Throughput, 3B model, GPU | 50+ tokens/sec | Q4_K_M quantization |
 | Daemon memory overhead | < 50 MB | Excluding loaded models |
 | Audit log write latency | < 5ms | Synchronous fsync |
 | Cold start to ready | < 2 seconds | Daemon process startup |
 
-If we cannot hit these on commodity hardware, the value proposition weakens.
+NPU targets (OpenVINO, AMD XDNA) will be added once those backends are wired up and benchmarked on real hardware.
 
 ---
 
@@ -483,26 +531,31 @@ If we cannot hit these on commodity hardware, the value proposition weakens.
 
 ### 8.1 API compatibility
 
-Maranode exposes an OpenAI-compatible API at `/v1/*`. This is not aspirational - it is the primary interface. Specifically:
+Maranode exposes an OpenAI-compatible API at `/v1/*`. The goal is that existing OpenAI SDK code (`from openai import OpenAI`) works with no changes other than the `base_url`.
 
-- `POST /v1/chat/completions` with streaming and non-streaming
+**Standard endpoints:**
+- `POST /v1/chat/completions` (streaming and non-streaming)
 - `POST /v1/completions` (legacy)
 - `POST /v1/embeddings`
 - `GET /v1/models`
 
-The goal is that existing OpenAI SDK code (`from openai import OpenAI`) works with no changes other than the `base_url`.
+**Maranode-specific extensions (ignored by standard clients):**
+- `rag` object in chat completions for grounded answers; response adds `sources` array
+- `with_receipt: true` to receive the signed proof receipt inline
+- `deterministic: true` to pin temperature=0, top_k=1, seed=0
+- `/v1/rag/*` — document ingestion, collection management, search
+- `/v1/workspaces/*` — workspace CRUD (admin key required)
+- `/v1/auth/*` — login, OIDC, SAML, session management
+- `/v1/audit/*` — log verification, export, compliance bundles
+- `/v1/attestation/*` — TPM and TEE attestation endpoints
+- `/v1/classification/*` — data classification policy
+- `/v1/incident/*` — incident response lifecycle
 
-**Maranode-specific extensions (optional, ignored by standard clients):**
-
-- `POST /v1/chat/completions` accepts an optional `rag` object to ground the
-  answer in retrieved documents; a grounded response adds a `sources` array.
-- `POST /v1/rag/documents`, `GET /v1/rag/collections`, `POST /v1/rag/search`
-  manage the optional RAG store. They return `501 Not Implemented` when RAG is
-  disabled, so a client can cleanly detect the feature is off.
+RAG endpoints return `501 Not Implemented` when RAG is disabled, so a client can cleanly detect the feature is off.
 
 ### 8.2 Model format
 
-GGUF only. We do not support PyTorch checkpoints, SafeTensors, or other formats directly. Operators convert to GGUF using standard tools.
+GGUF only. We do not support PyTorch checkpoints, SafeTensors, or other formats directly. Operators convert to GGUF using standard tools before importing.
 
 ### 8.3 OS compatibility
 
@@ -519,7 +572,7 @@ GGUF only. We do not support PyTorch checkpoints, SafeTensors, or other formats 
 - NixOS
 
 **Development only:**
-- macOS (Apple Silicon and Intel) - for developer convenience; not the production target
+- macOS (Apple Silicon and Intel) — for developer convenience; not the production target
 
 **Not supported:**
 - Windows
@@ -529,58 +582,80 @@ GGUF only. We do not support PyTorch checkpoints, SafeTensors, or other formats 
 
 ## 9. Project Structure
 
-The repository is organized to make the architecture visible in the directory tree:
-
 ```
 maranode/
-├── README.md
-├── ROADMAP.md
-├── ARCHITECTURE.md (this file)
-├── LICENSE
-├── Cargo.toml                    # Workspace root
+├── Cargo.toml                        # Workspace root
 ├── crates/
-│   ├── maranode-daemon/            # The maranoded binary
-│   ├── maranode-cli/               # The maranode CLI
-│   ├── maranode-api/               # HTTP API layer
-│   ├── maranode-inference/         # llama.cpp FFI wrapper
-│   ├── maranode-store/             # Model store
-│   ├── maranode-rag/               # Optional RAG (vector store, retrieval)
-│   ├── maranode-audit/             # Audit log
-│   ├── maranode-isolation/         # iptables, namespace management
-│   └── maranode-common/            # Shared types
+│   ├── maranode-daemon/              # maranoded binary: startup, config, lifecycle
+│   ├── maranode-cli/                 # maranode CLI (model, audit, tpm, incident, …)
+│   ├── maranode-api/                 # HTTP API layer, all routes
+│   ├── maranode-inference/           # llama.cpp FFI wrapper, device backends, queue
+│   ├── maranode-store/               # Model store, user DB, workspace DB, KEK
+│   ├── maranode-rag/                 # RAG engine: chunking, embedding, retrieval, crypto
+│   ├── maranode-audit/               # Audit log: chain, export, bundle, SIEM forward
+│   ├── maranode-attestation/         # TPM PCR, key sealing, TEE detection, attestation report
+│   ├── maranode-isolation/           # iptables rules, network namespace lifecycle, probes
+│   ├── maranode-common/              # Shared types: receipts, events, classification,
+│   │                                 #   workspace, user, incident, approval, baseline
+│   ├── maranode-verifier/            # Standalone offline receipt verifier binary
+│   └── maranode-bench/               # Benchmark tool (tokens/sec, latency, device compare)
 ├── docs/
 │   ├── install.md
 │   ├── usage.md
+│   ├── config.toml.example
 │   ├── threat-model.md
-│   └── verification.md
+│   ├── verification.md
+│   ├── workspaces.md
+│   ├── users.md
+│   ├── receipt.md
+│   ├── grounding.md
+│   ├── compliance.md
+│   ├── erasure.md
+│   ├── document-intelligence.md
+│   └── reproducible-inference.md
+├── siem/
+│   ├── splunk/                       # Splunk Technology Add-on
+│   ├── elastic/                      # Elastic integration
+│   ├── sentinel/                     # Microsoft Sentinel connector
+│   └── qradar/                       # IBM QRadar connector
 ├── scripts/
-│   ├── install.sh                # The curl | sh installer
-│   └── build-release.sh          # Reproducible build script
+│   ├── install.sh                    # The curl | sh installer
+│   └── build-release.sh              # Reproducible build script
+├── packaging/
+│   ├── debian/                       # .deb package
+│   ├── rpm/                          # .rpm spec
+│   ├── arch/                         # PKGBUILD
+│   └── homebrew/                     # Homebrew tap formula
+├── docker/                           # Supplemental Docker compose files
+├── demos/
+│   └── proof-test/                   # End-to-end receipt verification demo
+├── baselines/                        # Signed behavior baselines
 └── tests/
     ├── integration/
     └── e2e/
 ```
 
-**Why a Rust workspace:** Each crate has a clean boundary and can be tested in isolation. The audit and isolation crates can be reviewed independently by security researchers without needing to understand the inference layer.
+**Why a Rust workspace:** Each crate has a clean boundary and can be tested in isolation. The `maranode-audit` and `maranode-isolation` crates can be reviewed independently by security researchers without needing to understand the inference layer. The `maranode-verifier` binary has minimal dependencies by design — it should be auditable in an afternoon.
 
 ---
 
 ## 10. Open Questions
 
-Things still open. Some Phase 0 questions have been resolved; these remain.
+Things still open as of June 2026.
 
+- **Linux namespace enforcement:** The namespace lifecycle is done; wiring inference requests through the workspace netns is the missing step. This involves changes to how the daemon spawns llama.cpp contexts, which has implications for process isolation vs. in-process FFI.
 - **Plugin/extension model:** WebAssembly sandbox or process isolation? This affects whether we can ever support third-party code without breaking the trust model.
-- **Multi-device inference:** Can a single inference request be split across multiple devices (e.g., CPU + GPU)? llama.cpp has some support for this; the orchestration layer does not yet use it.
-- **Tauri desktop app:** A native desktop wrapper (Tauri) for the web UI would improve the development experience on macOS. Undecided whether this is worth the added packaging complexity.
+- **Multi-device inference:** Can a single inference request be split across multiple devices (e.g., CPU + GPU)? llama.cpp has some support for this; the orchestration layer does not use it.
+- **RBAC design:** The access model needs a proper role schema before we can implement it. Unclear whether to build a custom permission system or adopt an existing model (e.g., ABAC with attribute policies).
 
 Resolved:
 
 - **Web UI technology:** Browser-based, served by the daemon. Ships with the binary via rust-embed.
 - **Configuration format:** TOML primary, with environment variable overrides for all settings. See `docs/config.toml.example`.
-- **Hot reload:** Implemented. `SIGHUP` or `POST /v1/admin/config/reload` applies most settings without restart. See `docs/usage.md`.
+- **Hot reload:** Implemented. `SIGHUP` or `POST /v1/admin/config/reload` applies most settings without restart.
 - **Model download source:** Hugging Face by default. Operators can pass a full URL or use `model import` for air-gapped installations.
-
-These are listed openly because the architecture should not pretend to be decided where it is not.
+- **Audit key protection:** Sealed to TPM PCR via `maranode tpm seal audit-hmac`.
+- **Tauri desktop app:** Decided against. Browser-based UI shipped with the binary is sufficient; adding a native wrapper adds packaging complexity for minimal gain.
 
 ---
 
@@ -590,14 +665,14 @@ The design draws explicitly from:
 
 - **Docker** for content-addressed blob storage
 - **Ollama** for the model identification convention and CLI ergonomics
-- **HashiCorp Vault** for the enterprise vs core split discipline
-- **Cosign / Sigstore** for the signing infrastructure model
+- **HashiCorp Vault** for the enterprise vs core split discipline and the audit log design
+- **Cosign / Sigstore** for the signing infrastructure model (releases not yet signed; in progress)
 - **llama.cpp** as the inference engine
 - **systemd-journald** for the append-only log philosophy (though we do not use journald itself)
+- **The Update Framework (TUF)** for thinking about supply chain security
 
 We are not the first project to think about these problems. We are trying to combine known-good ideas into a product that does not yet exist in this combination.
 
 ---
 
-**Last updated:** 2026-06  
-Draft; updated as the code changes.
+**Last updated:** June 2026
