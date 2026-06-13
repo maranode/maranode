@@ -1,65 +1,62 @@
 # Maranode
 
-> **The local LLM runtime built for environments where a data leak is not an option.**
+> **Local LLM runtime that can prove what it did — for environments where a data leak is not an option.**
 
-Most local AI tools are built for developers on laptops. Maranode is built for hospitals, law firms, financial institutions, and any organization where sensitive data must stay inside the building — and you need to *prove* it.
+Your model never calls home. Every inference produces a signed receipt, offline-verifiable by anyone. Egress is default-deny at the kernel level from the moment the daemon starts, and you can check it yourself with `iptables -L` and `tcpdump` — no need to trust us.
 
-**What makes it different:**
+This is not another wrapper around llama.cpp. The OpenAI-compatible API, GPU/NPU acceleration, and single-binary install are table stakes — every tool has those. What Maranode adds is a tamper-evident audit chain, hardware-bound key sealing, grounding proofs for RAG answers, crypto-shred on workspace deletion, and a complete incident response workflow — all running on your own hardware, no cloud required.
 
-- **You can prove what it did.** Every inference, model load, and config change goes into a tamper-evident, HMAC-chained audit log. One command verifies the whole chain; one command exports GDPR/HIPAA/SOC 2 evidence.
-- **It fails closed.** Egress is default-deny from the moment the daemon starts (iptables OUTPUT DROP), and you can confirm it with your own tools — `iptables -L`, `tcpdump` — without trusting us. If isolation or the audit log cannot be guaranteed, inference does not run.
-- **No telemetry, no phone-home.** No update checker, no usage beacon, ever. The binary talks to nothing unless you tell it to.
-
-The rest is table stakes, and Maranode has it too: OpenAI-compatible API, GPU/NPU/Metal acceleration, a single binary with no external services. None of that is the reason to use it.
-
-Pre-alpha. Core runtime is working; hardening is ongoing.
+**Built for:** healthcare (HIPAA), legal, finance, government, defense, any regulated environment that needs to answer an auditor.
 
 ---
 
-## Who this is for
+## Proof, not promises
 
-If you are running AI on sensitive data and someone in your organization has asked *"but how do we know it is not sending anything out?"* — this is the answer.
+```bash
+# Every inference returns a signed receipt.
+# The receipt is Ed25519 over canonical JSON — verify it with any crypto library.
+curl -s http://localhost:11984/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"Hello"}],"with_receipt":true}' \
+  | jq .receipt
 
-Designed for: **healthcare (HIPAA), legal, finance, government, defense, any regulated environment that runs GDPR or ISO 27001 audits.**
+# Verify offline with the standalone binary — no daemon, no database.
+maranode-verify receipt.json
+# exit 0 = verified, exit 1 = failed
+
+# Confirm the firewall yourself — no need to trust Maranode.
+sudo iptables -L OUTPUT
+maranode verify network
+sudo tcpdump -i any -n not port 11984
+# (run inference in parallel — you will see nothing leave the machine)
+```
 
 ---
 
 ## How it compares
 
-Ollama and LM Studio already cover the basics — OpenAI-compatible API, GPU/NPU/Metal acceleration — and so does Maranode (a single binary, no external services). The table below is only the differences that matter for a regulated deployment.
+The table below is only the differences. Ollama is excellent for development; it was not designed for regulated deployments.
 
-| | Ollama | LM Studio | Maranode |
+| | Ollama | LM Studio | **Maranode** |
 |---|:---:|:---:|:---:|
-| **Default-deny egress, verifiable** | — | — | ✓ |
-| **Tamper-evident audit log** | — | — | ✓ |
-| **Compliance exports** (GDPR, HIPAA, SOC 2, ISO 27001) | — | — | ✓ |
-| **Multi-tenant workspaces** | — | — | ✓ |
-| **Built-in local RAG** (no external vector DB) | — | — | ✓ |
-| **TPM attestation** (verify runtime integrity) | — | — | ✓ partial |
-
-Ollama is excellent for development. It is not designed for environments where you need to prove — not just claim — that data never left the machine. Maranode is.
-
----
-
-## Verify the isolation yourself
-
-```bash
-# Verify isolation yourself — no need to trust Maranode
-sudo iptables -L OUTPUT
-maranode verify network   # active TCP probe + iptables-save dump
-
-# If you want raw confirmation:
-sudo tcpdump -i any -n not port 11984
-# (run inference — you will see nothing going out)
-```
-
-The OUTPUT chain default policy is DROP from the moment the daemon starts. Even if a library deep in the stack tries to phone home, the packet does not leave the machine.
+| Default-deny egress, kernel level | — | — | ✓ |
+| Verifiable by operator's own tools | — | — | ✓ |
+| Tamper-evident HMAC-chained audit | — | — | ✓ |
+| Signed inference receipts (Ed25519) | — | — | ✓ |
+| Compliance exports (GDPR/HIPAA/SOC 2/ISO 27001) | — | — | ✓ |
+| Crypto-shred on workspace deletion | — | — | ✓ |
+| Multi-tenant workspaces | — | — | ✓ |
+| Local RAG with grounding proof | — | — | ✓ |
+| TPM key sealing, PCR attestation | — | — | ✓ |
+| Incident response & legal hold | — | — | ✓ |
+| Data classification + DLP enforcement | — | — | ✓ |
+| SIEM integration (Splunk, Elastic, Sentinel, QRadar) | — | — | ✓ |
 
 ---
 
 ## Quick start
 
-### macOS (Apple Silicon or Intel)
+### macOS
 
 ```bash
 brew tap maranode/maranode
@@ -73,7 +70,7 @@ maranode serve
 curl -sSL https://get.maranode.com | sh
 ```
 
-Supports Ubuntu 22.04+, Debian 12, RHEL / Rocky / Alma 9, Alpine 3.19+, Fedora 39+, Arch.
+Tested on Ubuntu 22.04+, Debian 12, RHEL/Rocky/Alma 9, Alpine 3.19+, Fedora 39+, Arch.
 
 ### Linux — apt repository
 
@@ -92,47 +89,46 @@ sudo systemctl enable --now maranoded
 ### Build from source
 
 ```bash
-# Rust 1.88+, CMake 3.14+
+# Requirements: Rust 1.88+, CMake 3.14+
 # macOS: xcode-select --install
 
 git clone https://github.com/maranode/maranode && cd maranode
-make build          # auto-detects Metal / CUDA / ROCm / OpenVINO / CPU
+make build        # auto-detects available hardware
 ```
 
-| Backend | Command |
+| Backend | Build command |
 |---|---|
 | CPU (always works) | `make build-cpu` |
 | Apple Metal | `make build-metal` |
 | NVIDIA CUDA | `make build-cuda` |
 | AMD ROCm | `make build-rocm` |
+| Vulkan | `make build-vulkan` |
 | Intel NPU (OpenVINO) | `make build-npu` |
 | AMD Ryzen AI (XDNA) | `make build-ryzenai` |
-| Vulkan | `make build-vulkan` |
 
----
-
-## Run your first model
+### Run a model
 
 ```bash
-# Pull from Hugging Face (online — disable air-gap first if the daemon is running)
-maranode model pull bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
-  --name llama3.2 --tag 3b --quant Q4_K_M
-
-# Or import from disk (offline — no network needed)
+# Import from disk — no network, works in fully air-gapped installs.
 maranode model import /path/to/Llama-3.2-3B-Q4_K_M.gguf --name llama3.2 --tag 3b
 
-# Ask something
-maranode chat "Summarize the financial tables of first quarter"
+# Or pull from Hugging Face (needs whitelist mode first if air-gap is active).
+maranode model pull bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf \
+  --name llama3.2 --tag 3b
+
+# Chat from the CLI.
+maranode chat "Summarize the following contract clause: ..."
+
+# Web UI.
+open http://localhost:11984/ui
 ```
 
-Web UI at `http://localhost:11984/ui`
-
-Any OpenAI SDK works — just change `base_url`:
+### Drop-in for OpenAI SDK
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:11984/v1", api_key="ignored")
-client.chat.completions.create(
+response = client.chat.completions.create(
     model="llama3.2:3b",
     messages=[{"role": "user", "content": "Hello"}]
 )
@@ -140,53 +136,137 @@ client.chat.completions.create(
 
 ---
 
-## Core features
+## Features
 
-### Privacy and isolation
+### Inference runtime
 
-**Default-deny network isolation** — the iptables OUTPUT chain is set to DROP at daemon startup, not left to a config flag you can forget. Toggle it off explicitly when you need to pull a model, then back on. Check it any time with `iptables -L` and `tcpdump` — you do not have to trust Maranode to verify it.
+- **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`. Streaming (SSE) and non-streaming.
+- **Hardware acceleration** — CPU (x86_64, aarch64), NVIDIA CUDA, AMD ROCm, Apple Metal, Vulkan. Auto-selects at startup.
+- **Single binary** — `maranoded` (daemon) + `maranode` (CLI) + `maranode-verify` (offline verifier). No Python, no database server, no sidecar process.
+- **Content-addressed model store** — SHA-256 verified on every load. Duplicate weights stored once. Partial downloads are never visible as usable models.
+- **LRU model eviction** — loaded models are evicted under memory pressure without a restart.
+- **Concurrent request queue** — configurable `max_parallel` slots and `max_queue_depth`; excess requests get HTTP 503 rather than timing out silently.
+- **Quantization tooling** — `maranode model quant inspect <file>` shows GGUF quantization; `quant recommend` suggests a quantization from RAM and parameter count.
 
-**Prompts are not stored by default** — the audit log records the SHA-256 hash of a prompt, not the text. (A hash is a fingerprint, not encryption; the point is that the content is never written to disk at all unless you opt in.) Full-content logging is an explicit opt-in with its own retention controls.
+### Proof-carrying inference
 
-**HMAC-chained audit log** — every event (inference, model import, config reload, daemon start/stop) is chained with an HMAC. A deleted or modified entry breaks the chain. `maranode audit verify` checks the entire chain in one command.
+Every inference produces a signed, offline-verifiable receipt binding the model identity (GGUF SHA-256), input hash, output hash, token counts, timestamp, environment fingerprint, and TPM PCR values. The signature is plain Ed25519 over canonical JSON.
 
-**Compliance exports** — export the audit log as GDPR Article 30, HIPAA access log, SOC 2 security events, or ISO 27001 event log. Download a signed ZIP evidence bundle for auditors. Everything available via CLI, HTTP API, and web UI.
+- **Signed receipt per inference** — add `"with_receipt": true` to get it inline; it is also always written to the audit log.
+- **Standalone verifier binary** — `maranode-verify receipt.json` checks the signature with no daemon, no database, no Maranode dependency.
+- **Verify by hand** — any Python `cryptography` or `PyNaCl` install can verify the signature. Steps in `docs/receipt.md`.
+- **Past receipt extraction** — `maranode audit prove <request_id>` retrieves the signed receipt for any past inference.
+- **Reproducible inference** — `"deterministic": true` pins temperature=0, top_k=1, seed=0 for greedy decoding. With `--features deterministic-kernels`, the same input re-runs to the exact same bytes.
+- **Audit replay** — `maranode audit replay <request_id>` re-runs the original inference and confirms output hash matches.
 
-### Intelligence
+### Network isolation
 
-**RAG (Retrieval-Augmented Generation)** — ground model answers in your own documents. Local embeddings, SQLite vector store, brute-force cosine retrieval, cited answers. Nothing leaves the machine. Start with `maranoded --rag`, import an embedding model, and add documents. When no relevant chunk is found, the model says so — it does not guess.
+- **Default-deny egress** — iptables OUTPUT chain default policy is DROP at daemon startup, not a config flag you can forget. Loopback and the API port are explicitly allowed. Nothing else leaves the machine.
+- **Self-verifying** — `maranode verify network` runs an active TCP egress probe and dumps `iptables-save`. You can repeat this with your own tools without trusting Maranode.
+- **Drift detection** — the daemon re-probes on a configurable interval. Firewall drift produces a `fail-closed` event in the audit log.
+- **Whitelist mode** — `mode = "whitelist"` plus explicit `[[isolation.whitelist]]` blocks for specific host/port pairs, for deployments that must reach an internal mirror.
+- **Continuous isolation attestation** — every egress probe result is signed and chained into the audit log, so you can show an auditor that the machine was isolated for the entire duration of a session.
 
-**Multi-tenant workspaces** — isolated environments within one daemon. Each workspace has its own API key, model allowlist, rate limit, system prompt, and audit log segment. Useful for hospitals separating departments, law firms separating clients, or SaaS products with multiple customers.
+### Audit, compliance and evidence
 
-**Content-addressed model store** — SHA-256 verified on every load. Two models with identical weights deduplicate automatically. A partial download is never visible as a usable model.
+- **HMAC-chained audit log** — every event is chained with an HMAC. A deleted or modified entry breaks the chain. `maranode audit verify` checks the entire chain.
+- **Compliance exports** — `maranode audit export --format [gdpr|hipaa|soc2|iso27001]` maps events to framework controls.
+- **Signed evidence bundles** — `maranode audit bundle` produces a signed ZIP with the audit log, chain proof, signing key, and attestation report. Accepted by GDPR, HIPAA, and SOC 2 auditors.
+- **Legal hold** — `maranode audit hold create` locks a time range in the audit log, preventing retention policies from deleting it. Active incidents automatically place a hold.
+- **Retention policies** — configurable log age limits with configurable exceptions for holds.
+- **Prompts not stored by default** — audit records the SHA-256 of the prompt, not the text. Full-content logging is an explicit opt-in.
+- **SIEM forwarding** — `maranode audit forward <host:port>` streams events over TCP. Pre-built integrations for **Splunk, Elastic, Microsoft Sentinel, and IBM QRadar** in `siem/`.
+
+### RAG and document intelligence
+
+- **Fully local RAG** — ground answers in your documents. Local embeddings via the inference engine, SQLite vector store, brute-force cosine retrieval, cited answers. Nothing leaves the host.
+- **Honest refusal** — when no chunk scores above the threshold and grounding is required, the model says "this information is not in the provided documents" instead of guessing.
+- **Document ingestion** — PDF (with text extraction and OCR), plain text, and direct text input. Single file or batch multipart upload.
+- **Table and structured data extraction** — extracts tables from PDFs into structured form before chunking.
+- **Collections** — group documents into named collections. Separate untrusted uploads from curated knowledge.
+- **Grounding proof** — the signed receipt records which document chunks were retrieved, so the grounding of any answer is independently verifiable.
+- **RAG encrypted at rest** — in a workspace, chunk text is encrypted under the workspace key. Deleting the workspace key (crypto-shred) makes the RAG data unreadable.
+- **Ingest policy** — `anyone` (default), `admin_only`, or `allowlist`. Controls who can write to the persistent store.
+- **Inline extract without ingest** — `POST /v1/rag/extract` processes a file and returns text for immediate use without storing anything.
+
+### Multi-tenant workspaces
+
+- **Isolated tenants** — each workspace has its own API key, audit segment, model allowlist, system prompt, resource quotas (`max_concurrent_requests`, `max_models`, `max_memory_bytes`), and RAG collection.
+- **Crypto-shred** — deleting a workspace deletes its data-encryption key (DEK). All encrypted data (RAG chunks, content logs) becomes unreadable without further deletion. Satisfies GDPR right to erasure without manual file hunting.
+- **Network namespace lifecycle** — create and delete per-workspace Linux network namespaces. Routing inference through the namespace is in progress.
+- **Management API** — `GET/POST/PUT/DELETE /v1/workspaces/:slug` (admin key required).
+
+### Identity and authentication
+
+- **Local user accounts** — username/password, hashed in SQLite. `maranode users create/list/set-password`.
+- **API keys** — per-workspace bearer tokens.
+- **OIDC** — standard OIDC login flow, any compliant provider.
+- **SAML 2.0** — SP-initiated SSO.
+- **LDAP / Active Directory** — login against an LDAP directory. (Group sync is in progress.)
+- **Session management** — `GET /v1/sessions`, `DELETE /v1/sessions/:id`.
+- **Per-IP rate limiting** on all auth endpoints.
+
+### Data classification
+
+- **Sensitivity labels** — assign `Public / Internal / Confidential / Restricted` labels to RAG collections.
+- **Clearance enforcement** — if a workspace's clearance is below a collection's label, retrieval is blocked.
+- **Violations audit** — blocked access attempts produce `DataClassificationViolation` events in the audit log.
+- **DLP sync** — `maranode dlp sync --provider <p>` pulls labels from an external DLP system.
+
+### TPM and hardware attestation
+
+- **TPM 2.0 PCR read** — reads Platform Configuration Registers at startup via direct `/dev/tpm0` (no tpm2-tools dependency).
+- **Binary self-hash** — hashes its own executable at startup; recorded in the audit log.
+- **Key sealing to PCR policy** — `maranode tpm seal <purpose>` seals a key blob to a TPM PCR state. The key is only unsealable if PCR values match — i.e., the binary has not been tampered with.
+- **TEE detection** — Intel TDX and AMD SEV-SNP. TEE measurements are incorporated into the audit chain.
+- **Attestation report** — `maranode verify attest` builds a JSON report with binary hash, PCR values, audit chain status, and TEE presence, signed with the node key.
+- **Key rotation** — `maranode tpm rotate <purpose>` re-seals to the current PCR state.
+- **Recovery export** — `maranode tpm export-recovery` writes an encrypted recovery bundle for TPM failure or replacement.
+
+### Behavioral integrity
+
+- **Model baselines** — `maranode baseline create <model>` runs a calibration suite and stores the behavioral fingerprint. `maranode baseline check <model>` re-runs and confirms the model has not drifted.
+- **Approval registry** — `maranode model approve <model>` records a signed approval before a model is allowed to run in a workspace. Approval events are chained into the audit log.
+- **Air-gapped model registry** — models can be registered in an offline registry and approved before they reach an air-gapped installation, without the installation ever touching the internet.
+
+### Incident response
+
+- **Declare** — `maranode incident declare` ends all active sessions, freezes the audit log cryptographically, and opens an incident record.
+- **Investigate** — `maranode incident investigate` creates a forensic snapshot of current runtime state.
+- **Break-glass credentials** — `maranode incident bg-generate` creates time-limited emergency credentials. Each use is logged.
+- **Legal hold auto-placed** — active incidents automatically prevent retention policies from pruning relevant audit entries.
+- **Close** — `maranode incident close` restores normal operation and appends a close event to the audit chain.
 
 ### Operations
 
-**Single binary, no external services** — `maranoded` (daemon) and `maranode` (CLI). No Python interpreter, no database server, no sidecar processes. State is SQLite plus flat files, so a backup is a file copy and there is no extra service to secure or patch.
-
-**Broad hardware support** — CPU (x86_64, aarch64), NVIDIA CUDA, AMD ROCm, Apple Metal, Intel NPU via OpenVINO, AMD Ryzen AI XDNA, Vulkan. Device selected automatically at startup.
-
-**Hot config reload** — most settings apply without restarting the daemon: `kill -HUP $(pgrep maranoded)` or `maranode admin config-reload`.
+- **systemd service** — ships with a unit file; `sudo systemctl enable --now maranoded`.
+- **Hot config reload** — `kill -HUP $(pgrep maranoded)` or `maranode admin config-reload`; most settings apply without a restart.
+- **Unix socket** — CLI communicates via `/run/maranode/api.sock` (no TCP for local management).
+- **Benchmark tool** — `maranode bench` measures tokens/sec, first-token latency, and memory for any model across devices.
+- **Docker images** — pre-built images for each hardware backend.
+- **Package repositories** — apt, dnf, pacman, Homebrew tap.
 
 ---
 
 ## Docs
 
-- [Development.md](Development.md) — build, GPU backends, benchmarking, troubleshooting
-- [docs/install.md](docs/install.md) — installation and supported platforms
-- [docs/usage.md](docs/usage.md) — CLI and HTTP API reference
-- [docs/users.md](docs/users.md) — user accounts, SSO (OIDC, LDAP, SAML)
-- [docs/workspaces.md](docs/workspaces.md) — workspace isolation
-- [docs/compliance.md](docs/compliance.md) — audit log, compliance exports, evidence bundles
-- [docs/document-intelligence.md](docs/document-intelligence.md) — PDF ingest and RAG
-- [docs/verification.md](docs/verification.md) — network isolation and attestation verification
-- [ARCHITECTURE.md](ARCHITECTURE.md) — design, trust model, threat model
-- [ROADMAP.md](ROADMAP.md) — what is done, what is next, what we will not do
----
-
-## Status
-
-Phase 0. Core inference, model store, audit log, network isolation, RAG, and workspace isolation are implemented. NPU acceleration and the full web UI are in active development; TPM attestation is partial (binary hash and PCR read work today).
+| | |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Design, trust model, threat model |
+| [ROADMAP.md](ROADMAP.md) | What is built, what is next, what we will not do |
+| [HANDBOOK.md](HANDBOOK.md) | Full feature inventory, status-tagged against the source |
+| [docs/install.md](docs/install.md) | Installation and supported platforms |
+| [docs/usage.md](docs/usage.md) | CLI and HTTP API reference |
+| [docs/users.md](docs/users.md) | User accounts and SSO |
+| [docs/workspaces.md](docs/workspaces.md) | Workspace isolation |
+| [docs/compliance.md](docs/compliance.md) | Audit log, compliance exports, evidence bundles |
+| [docs/receipt.md](docs/receipt.md) | Signed receipts and offline verification |
+| [docs/grounding.md](docs/grounding.md) | RAG grounding proof |
+| [docs/verification.md](docs/verification.md) | Network isolation and attestation |
+| [docs/erasure.md](docs/erasure.md) | Crypto-shred and right to erasure |
+| [docs/reproducible-inference.md](docs/reproducible-inference.md) | Deterministic mode and replay |
+| [docs/document-intelligence.md](docs/document-intelligence.md) | PDF ingest and RAG |
+| [Development.md](Development.md) | Build, GPU backends, benchmarking, troubleshooting |
 
 ---
 
