@@ -18,6 +18,9 @@ pub struct DaemonConfig {
 
     pub unix_socket: Option<String>,
 
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+
     pub log_level: String,
 
     /// inference device: auto, cpu, gpu, or npu
@@ -365,6 +368,8 @@ impl Default for DaemonConfig {
             models_dir: maranode_common::paths::default_models_dir(),
             bind: "127.0.0.1:11984".into(),
             unix_socket: maranode_common::paths::default_unix_socket(),
+            tls_cert: None,
+            tls_key: None,
             log_level: "info".into(),
             device: "auto".into(),
             inference: InferenceConfig::default(),

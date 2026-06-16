@@ -22,7 +22,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, encrypted store
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
-- CLI (`maranode` + `maranoded`), web UI, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)
+- CLI (`maranode` + `maranoded`), web UI, native TLS (rustls) or Unix socket, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)
 - Benchmark tool, integration and e2e test suite, threat model, proof demo
 
 ---
@@ -58,7 +58,6 @@ These are items that are partially built or missing from an otherwise mature run
 ### Operations
 
 - **Prometheus metrics** — local-only export, no scraping outside the host. Needed for self-hosted ops dashboards.
-- **Native TLS** — the daemon currently listens on plain HTTP and expects a reverse proxy. Direct TLS with certificate management should be built in for deployments that cannot run a proxy.
 
 ### Web UI
 

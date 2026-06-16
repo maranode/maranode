@@ -901,8 +901,13 @@ mobile layout are still open (see TODO).
 **Prometheus metrics** — **[Planned]**. Local-only metrics export is on the
 roadmap.
 
-**Native TLS** — **[Planned]**. The daemon listens on plain HTTP today and expects
-a reverse proxy for TLS. A `--tls-cert` / `--tls-key` option is planned.
+**Native TLS** — **[Done]**. Set `tls_cert` and `tls_key` in config, or pass
+`--tls-cert` / `--tls-key` (env `MARANODE_TLS_CERT` / `MARANODE_TLS_KEY`), and the
+daemon serves HTTPS on `bind` directly with rustls, so no reverse proxy is needed.
+The PEM cert chain and private key (PKCS#8, PKCS#1 or SEC1) are read at start; the
+process fails fast when a file is missing or the key does not match the cert. Both
+options must be given together, and the Unix socket stays plain. Serving path in
+`maranode-daemon/tls_serve.rs`.
 
 ---
 
@@ -1064,8 +1069,7 @@ cache, zero-downtime upgrades, minimal hardened OS image (immutable root, secure
 boot, OVA/QCOW2).
 
 **Runtime** — **[Planned]**: split one inference across CPU+GPU, exact
-per-tokenizer budgeting, native TLS (`--tls-cert`/`--tls-key`), Prometheus metrics,
-audit log rotation with chain continuity.
+per-tokenizer budgeting, Prometheus metrics.
 
 **RAG** — **[Planned]**: code-aware chunking and code intelligence, local
 fine-tuning workflow.

@@ -7,6 +7,7 @@ mod lifecycle;
 mod probe;
 mod reload;
 mod shutdown;
+mod tls_serve;
 mod unix_serve;
 
 use std::collections::HashMap;
@@ -85,6 +86,12 @@ struct Args {
 
     #[arg(long)]
     no_unix_socket: bool,
+
+    #[arg(long, env = "MARANODE_TLS_CERT")]
+    tls_cert: Option<PathBuf>,
+
+    #[arg(long, env = "MARANODE_TLS_KEY")]
+    tls_key: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -130,6 +137,12 @@ async fn main() -> Result<()> {
     }
     if args.no_unix_socket {
         cfg.unix_socket = None;
+    }
+    if let Some(c) = args.tls_cert {
+        cfg.tls_cert = Some(c);
+    }
+    if let Some(k) = args.tls_key {
+        cfg.tls_key = Some(k);
     }
     if args.no_isolation || !cfg!(target_os = "linux") {
         cfg.isolation.mode = AirGapMode::Disabled;
@@ -507,7 +520,19 @@ async fn main() -> Result<()> {
 
     let router = build_router(state).merge(admin::router(reload_services));
 
-    info!("Listening on http://{}", cfg.bind);
+    let tls = match (cfg.tls_cert.clone(), cfg.tls_key.clone()) {
+        (Some(cert), Some(key)) => {
+            Some(tls_serve::load_server_config(&cert, &key).context("loading TLS certificate/key")?)
+        }
+        (None, None) => None,
+        _ => anyhow::bail!("tls_cert and tls_key must both be set, or both be unset"),
+    };
+
+    info!(
+        "Listening on {}://{}",
+        if tls.is_some() { "https" } else { "http" },
+        cfg.bind
+    );
 
     let tcp_listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
 
@@ -535,15 +560,25 @@ async fn main() -> Result<()> {
 
     #[cfg(unix)]
     {
-        match unix_listener {
-            Some(ul) => {
+        match (tls, unix_listener) {
+            (Some(tls), Some(ul)) => {
+                let router2 = router.clone();
+                tokio::select! {
+                    r = tls_serve::serve_tls(tcp_listener, router, tls, shutdown::signal()) => r?,
+                    r = unix_serve::serve_unix(ul, router2, shutdown::signal()) => r?,
+                }
+            }
+            (Some(tls), None) => {
+                tls_serve::serve_tls(tcp_listener, router, tls, shutdown::signal()).await?;
+            }
+            (None, Some(ul)) => {
                 let router2 = router.clone();
                 tokio::select! {
                     r = axum::serve(tcp_listener, router).with_graceful_shutdown(shutdown::signal()) => r?,
                     r = unix_serve::serve_unix(ul, router2, shutdown::signal()) => r?,
                 }
             }
-            None => {
+            (None, None) => {
                 axum::serve(tcp_listener, router)
                     .with_graceful_shutdown(shutdown::signal())
                     .await?;
@@ -552,9 +587,16 @@ async fn main() -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    axum::serve(tcp_listener, router)
-        .with_graceful_shutdown(shutdown::signal())
-        .await?;
+    match tls {
+        Some(tls) => {
+            tls_serve::serve_tls(tcp_listener, router, tls, shutdown::signal()).await?;
+        }
+        None => {
+            axum::serve(tcp_listener, router)
+                .with_graceful_shutdown(shutdown::signal())
+                .await?;
+        }
+    }
 
     audit
         .append(

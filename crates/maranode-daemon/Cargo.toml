@@ -26,6 +26,8 @@ maranode-api       = { workspace = true }
 axum         = { workspace = true }
 hyper-util   = { version = "0.1", features = ["tokio", "server-auto"] }
 tower        = { workspace = true, features = ["util"] }
+tokio-rustls   = "0.26"
+rustls-pemfile = "2"
 tokio        = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
