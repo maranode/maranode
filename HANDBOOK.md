@@ -892,8 +892,12 @@ the full health JSON.
 
 **Web UI** — **[Partial]**. Served at `/ui` (`GET /ui`, `/ui/`, assets at
 `/ui/assets/*`). Chat, model and audit views work, the rest of the UI is in active
-development. Assets served from `maranode-api/routes/ui.rs`. Accessibility and a
-mobile layout are still open (see TODO).
+development. Assets served from `maranode-api/routes/ui.rs`. Accessibility and the
+mobile layout are done: skip link, nav/main landmarks, modal dialogs with focus
+trap, Escape and focus restore, `aria-current` navigation, named icon buttons,
+decorative icons hidden from screen readers, `aria-live` status and toast, plus an
+off-canvas sidebar with a hamburger toggle and responsive breakpoints for narrow
+screens. Most of this wiring is applied at runtime in `ui/assets/app.js`.
 
 **Approval UI** — **[Done]**. The model approval workflow has its own web view at
 `/v1/registry/ui`, see section 13.

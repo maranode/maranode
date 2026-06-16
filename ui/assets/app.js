@@ -24,15 +24,18 @@ function toggleGenSettings() {
   const open  = panel.style.display !== 'none';
   panel.style.display = open ? 'none' : '';
   btn.classList.toggle('active', !open);
+  btn.setAttribute('aria-expanded', open ? 'false' : 'true');
 }
 
 function toggleAdv(id) {
   const body    = $(id);
   const section = body.closest('.adv-section');
   const chevron = section.querySelector('.adv-chevron');
+  const toggle  = section.querySelector('.adv-toggle');
   const open    = body.style.display !== 'none';
   body.style.display = open ? 'none' : '';
   chevron.style.transform = open ? '' : 'rotate(180deg)';
+  toggle?.setAttribute('aria-expanded', open ? 'false' : 'true');
 }
 
 function hasCitationMarkers(text) {
@@ -189,11 +192,15 @@ async function adminFetch(path, opts = {}) {
 
 function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.sidebar-nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sidebar-nav-btn').forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-current'); });
   $('library-nav-btn')?.classList.remove('active');
+  $('library-nav-btn')?.removeAttribute('aria-current');
   $('page-' + name).classList.add('active');
   const fallbackBtn = name === 'library' ? $('library-nav-btn') : $('nav-' + name);
-  (btn || fallbackBtn)?.classList.add('active');
+  const activeBtn = btn || fallbackBtn;
+  activeBtn?.classList.add('active');
+  activeBtn?.setAttribute('aria-current', 'page');
+  closeSidebar();
   if (name === 'models')     loadModels();
   if (name === 'audit')      loadAudit();
   if (name === 'rag')        loadCollections();
@@ -2084,3 +2091,126 @@ function closeWsSwitcher() {
   $('ws-switcher-modal').style.display = 'none';
   _wsSwitcherPending = null;
 }
+
+/* ---------- mobile navigation drawer ---------- */
+
+function toggleSidebar() {
+  const open = document.body.classList.toggle('nav-open');
+  $('sidebar-toggle')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeSidebar() {
+  document.body.classList.remove('nav-open');
+  $('sidebar-toggle')?.setAttribute('aria-expanded', 'false');
+}
+
+/* ---------- accessibility wiring ---------- */
+
+(function initA11y() {
+  // decorative icons are skipped by screen readers
+  document.querySelectorAll('svg').forEach(s => {
+    if (!s.getAttribute('aria-label')) {
+      s.setAttribute('aria-hidden', 'true');
+      s.setAttribute('focusable', 'false');
+    }
+  });
+
+  // icon-only buttons borrow their name from the title
+  document.querySelectorAll('button').forEach(b => {
+    if (b.getAttribute('aria-label') || b.textContent.trim()) return;
+    const t = b.getAttribute('title');
+    if (t) b.setAttribute('aria-label', t);
+  });
+
+  // give every field an accessible name when it has no associated label
+  document.querySelectorAll('input, select, textarea').forEach(c => {
+    if (c.type === 'hidden') return;
+    if (c.getAttribute('aria-label') || c.getAttribute('aria-labelledby')) return;
+    if (c.id && document.querySelector('label[for="' + c.id + '"]')) return;
+    if (c.closest('label')) return;
+    let name = '';
+    const lab = c.parentElement && c.parentElement.querySelector('label');
+    if (lab && !lab.contains(c)) name = lab.textContent.trim();
+    if (!name) name = c.getAttribute('placeholder') || '';
+    if (name) c.setAttribute('aria-label', name);
+  });
+
+  // modals announced as labelled dialogs
+  document.querySelectorAll('.modal-overlay').forEach(ov => {
+    const modal = ov.querySelector('.modal');
+    if (!modal) return;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const h = modal.querySelector('h3');
+    if (h) {
+      if (!h.id) h.id = ov.id + '-title';
+      modal.setAttribute('aria-labelledby', h.id);
+    }
+  });
+
+  // clickable spans/divs operable from the keyboard
+  document.querySelectorAll('[onclick]').forEach(el => {
+    if (el.matches('button, a, input, select, textarea, label, .modal-overlay, #sidebar-backdrop')) return;
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+  });
+  document.addEventListener('keydown', e => {
+    const t = e.target;
+    if ((e.key === 'Enter' || e.key === ' ') && t.getAttribute &&
+        t.getAttribute('role') === 'button' && t.tagName !== 'BUTTON') {
+      e.preventDefault();
+      t.click();
+    }
+  });
+
+  document.querySelector('.sidebar-nav-btn.active')?.setAttribute('aria-current', 'page');
+  $('gen-settings-toggle')?.setAttribute('aria-expanded', 'false');
+  document.querySelectorAll('.adv-toggle').forEach(b => b.setAttribute('aria-expanded', 'false'));
+
+  // dialog focus management
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  let lastFocused = null;
+  const dialogs = [...document.querySelectorAll('.modal-overlay'), $('page-login')].filter(Boolean);
+
+  const isOpen = ov => ov.style.display !== 'none';
+  const scopeOf = ov => ov.querySelector('.modal') || ov;
+  const focusables = scope => [...scope.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null);
+  const topOpen = () => dialogs.filter(isOpen).pop() || null;
+
+  dialogs.forEach(ov => {
+    let shown = isOpen(ov);
+    new MutationObserver(() => {
+      const now = isOpen(ov);
+      if (now === shown) return;
+      shown = now;
+      if (now) {
+        lastFocused = document.activeElement;
+        const f = focusables(scopeOf(ov));
+        if (f.length) f[0].focus();
+      } else if (lastFocused && document.contains(lastFocused)) {
+        try { lastFocused.focus(); } catch (_) {}
+        lastFocused = null;
+      }
+    }).observe(ov, { attributes: true, attributeFilter: ['style'] });
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.classList.contains('nav-open')) {
+      closeSidebar();
+      return;
+    }
+    const ov = topOpen();
+    if (!ov) return;
+    if (e.key === 'Escape' && ov.id !== 'page-login') {
+      e.preventDefault();
+      const cancel = [...ov.querySelectorAll('button')].find(b => /cancel|close|done/i.test(b.textContent));
+      if (cancel) cancel.click(); else ov.style.display = 'none';
+    } else if (e.key === 'Tab') {
+      const f = focusables(scopeOf(ov));
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+})();

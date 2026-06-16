@@ -8,6 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
 
 <!-- Login page (shown when not authenticated) -->
 <div id="page-login" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:1000;display:flex;align-items:center;justify-content:center">
@@ -39,11 +40,11 @@
   </div>
 </div>
 
-<aside id="sidebar">
+<aside id="sidebar" role="navigation" aria-label="Primary">
   <div id="sidebar-brand">
     <div id="sidebar-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 8.5L10.5 5.5L12 7.5L13.5 5.5L16 8.5H8Z" fill="white"/><circle cx="12" cy="11" r="2.5" fill="white"/><path d="M12 13.5C9 15 6.5 14.5 5.5 17C4.5 19.5 7.5 21 11 20" stroke="white" stroke-width="2.2" stroke-linecap="round"/><path d="M11 20L9.5 23" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg></div>
     <h1>Mara<span>node</span></h1>
-    <div id="sidebar-status">
+    <div id="sidebar-status" role="status">
       <div id="status-dot"></div>
       <span id="status-text">…</span>
     </div>
@@ -101,9 +102,12 @@
   </div>
 </aside>
 
-<div id="main">
+<div id="main" role="main" tabindex="-1">
 
   <div id="topbar">
+    <button id="sidebar-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar" onclick="toggleSidebar()">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
     <div id="topbar-title">New Conversation</div>
     <div id="topbar-badges">
       <span id="badge-airgap" class="badge airgap">AIR-GAP</span>
@@ -834,7 +838,9 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
   </div>
 </div>
 
-<div id="toast"><div id="toast-dot"></div><span id="toast-msg"></span></div>
+<div id="toast" role="status" aria-live="polite"><div id="toast-dot"></div><span id="toast-msg"></span></div>
+
+<div id="sidebar-backdrop" onclick="closeSidebar()"></div>
 
 <script src="/ui/assets/app.js" defer></script>
 </body>
