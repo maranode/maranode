@@ -20,3 +20,6 @@ thiserror     = { workspace = true }
 rand          = { workspace = true }
 zip           = { workspace = true }
 ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

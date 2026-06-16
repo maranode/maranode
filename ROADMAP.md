@@ -14,7 +14,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Local inference (CPU, CUDA, Metal, ROCm, Vulkan) with OpenAI-compatible API
 - Model store, pull from Hugging Face, content-addressed blobs, SHA-256 verification
 - Air-gap enforcement via iptables, periodic self-probe, fail-closed on drift
-- Append-only HMAC-chained audit log, compliance exports (GDPR/HIPAA/SOC 2/ISO 27001), evidence bundles, SIEM forward
+- Append-only HMAC-chained audit log, size/age rotation into sealed compressed segments, compliance exports (GDPR/HIPAA/SOC 2/ISO 27001), evidence bundles, SIEM forward
 - Proof-carrying inference: signed receipts, reproducible deterministic mode, receipt replay
 - TPM 2.0 PCR read, binary self-hash at start, key sealing, attestation reports, TEE detection
 - Workspaces with per-workspace quotas, system prompts, audit segments, crypto-shred
@@ -59,7 +59,6 @@ These are items that are partially built or missing from an otherwise mature run
 
 - **Prometheus metrics** — local-only export, no scraping outside the host. Needed for self-hosted ops dashboards.
 - **Native TLS** — the daemon currently listens on plain HTTP and expects a reverse proxy. Direct TLS with certificate management should be built in for deployments that cannot run a proxy.
-- **Audit log rotation** — the log file grows without bound. Rotation with configurable size/age limit, compression of rotated segments, and retention enforcement across rotated files.
 
 ### Web UI
 
@@ -70,7 +69,6 @@ These are items that are partially built or missing from an otherwise mature run
 - Signed release artifacts are available and the cosign verification command is documented
 - Security audit report is published
 - Prometheus endpoint ships and is documented
-- Audit log rotation is tested under a full rotation cycle
 
 ---
 

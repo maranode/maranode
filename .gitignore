@@ -12,7 +12,7 @@
 .DS_Store
 
 # editor
-.vscode/settings.json
+.vscode
 .idea/
 
 /var/lib/maranode/

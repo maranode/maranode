@@ -304,6 +304,12 @@ async fn main() -> Result<()> {
             &maranode_audit::log::default_log_path(&ws_data),
             &maranode_audit::log::default_key_path(&ws_data),
         )?;
+        ws_audit
+            .set_rotation(maranode_audit::rotate::RotateConfig {
+                max_bytes: cfg.logging.audit_max_mb.saturating_mul(1024 * 1024),
+                max_age_days: cfg.logging.audit_max_age_days,
+            })
+            .await;
         workspace_audits.insert(ws.slug.clone(), ws_audit);
     }
     info!("Workspace store ready ({} workspace(s))", workspaces.len());
@@ -487,6 +493,16 @@ async fn main() -> Result<()> {
     spawn_sighup_reload(reload_services.clone());
 
     probe::spawn(state.clone());
+    {
+        let rt = state.rt();
+        state
+            .audit
+            .set_rotation(maranode_audit::rotate::RotateConfig {
+                max_bytes: rt.audit_max_mb.saturating_mul(1024 * 1024),
+                max_age_days: rt.audit_max_age_days,
+            })
+            .await;
+    }
     spawn_retention_scheduler(state.clone());
 
     let router = build_router(state).merge(admin::router(reload_services));
@@ -637,8 +653,8 @@ async fn load_master_kek(cfg: &DaemonConfig) -> Result<[u8; 32]> {
 
 fn spawn_retention_scheduler(state: maranode_api::AppState) {
     tokio::spawn(async move {
-        use maranode_audit::retention::prune_log;
-        use maranode_audit::log::default_log_path;
+        use maranode_audit::rotate::RotateConfig;
+        use maranode_audit::AuditLog;
         use tokio::time::{interval, Duration};
 
         let mut ticker = interval(Duration::from_secs(12 * 60 * 60));
@@ -648,31 +664,64 @@ fn spawn_retention_scheduler(state: maranode_api::AppState) {
             ticker.tick().await;
             let rt = state.rt();
             let retain_days = rt.content_log_retention_days;
-            if retain_days == 0 {
-                continue;
-            }
+            let cfg = RotateConfig {
+                max_bytes: rt.audit_max_mb.saturating_mul(1024 * 1024),
+                max_age_days: rt.audit_max_age_days,
+            };
 
-            let main_log = default_log_path(&state.data_dir);
-            match prune_log(&main_log, retain_days) {
-                Ok(n) if n > 0 => tracing::info!("retention: pruned {} entries from main audit log", n),
-                Ok(_) => {}
-                Err(e) => tracing::warn!("retention: prune main log failed: {e}"),
-            }
+            let main_dir = state.data_dir.clone();
+            sweep_audit_dir(&state.audit, &main_dir, &cfg, retain_days, "main").await;
 
-            let ws_audits = state.workspace_audits.lock().await;
-            let ws_slugs: Vec<String> = ws_audits.keys().cloned().collect();
-            drop(ws_audits);
-
-            for slug in ws_slugs {
-                let ws_log = default_log_path(&state.data_dir.join("workspaces").join(&slug));
-                match prune_log(&ws_log, retain_days) {
-                    Ok(n) if n > 0 => tracing::info!("retention: pruned {} entries from workspace {}", n, slug),
-                    Ok(_) => {}
-                    Err(e) => tracing::warn!("retention: prune workspace {} failed: {e}", slug),
-                }
+            let ws: Vec<(String, AuditLog)> = {
+                let guard = state.workspace_audits.lock().await;
+                guard.iter().map(|(s, l)| (s.clone(), l.clone())).collect()
+            };
+            for (slug, log) in ws {
+                let ws_dir = state.data_dir.join("workspaces").join(&slug);
+                sweep_audit_dir(&log, &ws_dir, &cfg, retain_days, &slug).await;
             }
         }
     });
+}
+
+/// run one rotation + segment cleanup pass over a single audit directory.
+async fn sweep_audit_dir(
+    log: &maranode_audit::AuditLog,
+    dir: &std::path::Path,
+    cfg: &maranode_audit::rotate::RotateConfig,
+    retain_days: u32,
+    label: &str,
+) {
+    let log_path = maranode_audit::log::default_log_path(dir);
+    log.set_rotation(*cfg).await;
+    match log.maybe_rotate(&log_path, cfg).await {
+        Ok(Some(seg)) => tracing::info!(
+            "rotation: sealed {} audit segment {} (seq {}-{})",
+            label,
+            seg.file,
+            seg.seq_start,
+            seg.seq_end
+        ),
+        Ok(None) => {}
+        Err(e) => tracing::warn!("rotation: {} rotate failed: {e}", label),
+    }
+    match log.enforce_segment_retention(dir, retain_days).await {
+        Ok(n) if n > 0 => {
+            tracing::info!("retention: removed {} expired {} audit segment(s)", n, label)
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("retention: {} segment cleanup failed: {e}", label),
+    }
+
+    if retain_days > 0 {
+        match maranode_audit::retention::prune_log(&log_path, retain_days) {
+            Ok(n) if n > 0 => {
+                tracing::info!("retention: pruned {} entries from {} audit log", n, label)
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("retention: {} prune failed: {e}", label),
+        }
+    }
 }
 
 #[cfg(unix)]

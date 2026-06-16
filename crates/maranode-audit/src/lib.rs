@@ -6,6 +6,7 @@ pub mod export;
 pub mod key;
 pub mod log;
 pub mod retention;
+pub mod rotate;
 pub mod sign;
 pub mod verify;
 

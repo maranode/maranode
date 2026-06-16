@@ -14,139 +14,107 @@ use maranode_audit::key::load_or_generate;
 use maranode_audit::log::{default_key_path, default_log_path};
 use maranode_audit::retention::prune_log;
 use maranode_audit::sign;
-use maranode_audit::verify::verify_log;
+use maranode_audit::verify::verify_all;
 use maranode_common::events::{AuditEntry, AuditEvent};
 
 #[derive(Subcommand)]
 pub enum AuditCommand {
-    /// check HMAC chain integrity of audit log
     Verify,
+
+    Segments,
 
     Tail {
         #[arg(short, default_value_t = 20)]
         n: usize,
     },
 
-    /// export audit log as CSV for compliance
     Export {
         /// export format: gdpr, hipaa, soc2, or iso27001
         #[arg(long)]
         format: String,
 
-        /// only rows for this workspace actor
         #[arg(long)]
         workspace: Option<String>,
 
-        /// start time in RFC 3339, e.g. 2024-01-01T00:00:00Z
         #[arg(long)]
         from: Option<String>,
 
-        /// end time in RFC 3339
         #[arg(long)]
         to: Option<String>,
 
-        /// output CSV path. default: audit_<format>.csv
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
 
-    /// create ZIP bundle with log, integrity report, and manifest
     Bundle {
-        /// output ZIP path. default: audit_bundle.zip
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
 
-    /// remove audit log entries older than N days
     Prune {
         #[arg(long)]
         retain_days: u32,
 
-        /// really delete rows. without flag, only count stale entries
         #[arg(long)]
         confirm: bool,
     },
 
-    /// create a backup ZIP of all audit log files and keys
     Backup {
-        /// output ZIP path. default: audit_backup_<timestamp>.zip
         #[arg(long, short)]
         output: Option<PathBuf>,
 
-        /// also include all workspace audit logs found in <data_dir>/workspaces/
         #[arg(long)]
         workspaces: bool,
     },
 
-    /// restore audit files from a backup ZIP
     Restore {
-        /// path to backup ZIP created by `maranode audit backup`
         #[arg(long, short)]
         from: PathBuf,
 
-        /// overwrite existing files without prompting
         #[arg(long)]
         force: bool,
     },
 
-    /// extract signed inference receipt for a given request id
     Prove {
-        /// request_id from the chat response (X-Request-Id header or receipt field)
         record_id: String,
     },
 
-    /// re-run inference for a record and compare output hash to the stored receipt
     Replay {
-        /// request_id to replay
         record_id: String,
     },
 
-    /// verify RAG source hashes from a stored receipt against the live RAG store
     VerifySources {
-        /// request_id of the inference whose sources to verify
         record_id: String,
     },
 
-    /// export the deletion certificate for a shredded workspace
     ExportCert {
-        /// workspace slug (e.g. "default")
         workspace: String,
 
-        /// output file path. default: deletion_cert_<workspace>.txt
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
 
-    /// forward audit log to a SIEM over syslog (CEF over TCP/UDP RFC 5424)
     Forward {
-        /// syslog destination, e.g. siem.corp.local:514 or 10.0.0.5:6514
         #[arg(long)]
         target: String,
 
-        /// transport: tcp or udp (default: tcp)
         #[arg(long, default_value = "tcp")]
         transport: String,
 
-        /// start time in RFC 3339; only forward events after this time
         #[arg(long)]
         from: Option<String>,
 
-        /// end time in RFC 3339
         #[arg(long)]
         to: Option<String>,
     },
 
-    /// show isolation probe timeline from the audit log
     IsolationReport {
-        /// start time in RFC 3339, e.g. 2024-01-01T00:00:00Z
         #[arg(long)]
         from: Option<String>,
 
-        /// end time in RFC 3339
         #[arg(long)]
         to: Option<String>,
 
-        /// only show events where isolation was broken
         #[arg(long)]
         drift_only: bool,
     },
@@ -158,16 +126,13 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
 
     match cmd {
         AuditCommand::Verify => {
-            if !log_path.exists() {
-                println!(
-                    "{} No audit log found at {}",
-                    "·".dimmed(),
-                    log_path.display()
-                );
+            let key = load_or_generate(&key_path)?;
+            let result = verify_all(data_dir, &key, &log_path)?;
+
+            if result.entries_checked == 0 && result.ok {
+                println!("{} No audit entries found.", "·".dimmed());
                 return Ok(());
             }
-            let key = load_or_generate(&key_path)?;
-            let result = verify_log(&log_path, &key)?;
 
             if result.ok {
                 println!(
@@ -186,6 +151,29 @@ pub async fn run(cmd: AuditCommand, data_dir: &Path, host: &str) -> Result<()> {
                     eprintln!("  At sequence {}: {}", v.seq.to_string().yellow(), v.detail);
                 }
                 std::process::exit(1);
+            }
+        }
+
+        AuditCommand::Segments => {
+            let m = maranode_audit::rotate::load_manifest(data_dir)?;
+            if m.segments.is_empty() {
+                println!("{} No rotated segments.", "·".dimmed());
+                return Ok(());
+            }
+            println!(
+                "{} {} sealed segment(s):",
+                "·".dimmed(),
+                m.segments.len().to_string().yellow(),
+            );
+            for s in &m.segments {
+                println!(
+                    "  {}  seq {}-{}  {} entries  sealed {}",
+                    s.file.cyan(),
+                    s.seq_start,
+                    s.seq_end,
+                    s.entries,
+                    s.rotated_at.format("%Y-%m-%d %H:%M").to_string().dimmed(),
+                );
             }
         }
 
@@ -521,7 +509,7 @@ fn restore_audit(data_dir: &Path, src: &Path, force: bool) -> Result<()> {
     if log_path.exists() {
         let key_path = default_key_path(data_dir);
         let key = load_or_generate(&key_path)?;
-        let result = verify_log(&log_path, &key)?;
+        let result = verify_all(data_dir, &key, &log_path)?;
         if result.ok {
             println!(
                 "{} Integrity check {} ({} entries).",

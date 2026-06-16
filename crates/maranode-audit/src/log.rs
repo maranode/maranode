@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use maranode_common::events::{AuditEntry, AuditEvent};
 
 use crate::chain;
+use crate::rotate::{self, RotateConfig};
 
 #[derive(Clone)]
 pub struct AuditLog {
@@ -22,7 +23,14 @@ struct LogInner {
     seq: u64,
     last_hmac: String,
     key: Vec<u8>,
+    log_path: PathBuf,
+    rotate: RotateConfig,
 }
+
+const ROTATE_OFF: RotateConfig = RotateConfig {
+    max_bytes: 0,
+    max_age_days: 0,
+};
 
 impl AuditLog {
     /// open with a pre-loaded key (for TPM-sealed key workflows)
@@ -44,6 +52,8 @@ impl AuditLog {
                 seq,
                 last_hmac,
                 key,
+                log_path: log_path.to_path_buf(),
+                rotate: ROTATE_OFF,
             })),
         })
     }
@@ -71,8 +81,16 @@ impl AuditLog {
                 seq,
                 last_hmac,
                 key,
+                log_path: log_path.to_path_buf(),
+                rotate: ROTATE_OFF,
             })),
         })
+    }
+
+    /// set the size/age triggers used for automatic rotation. size rotation runs inline on
+    /// append; age rotation is left to a periodic [`AuditLog::maybe_rotate`] call.
+    pub async fn set_rotation(&self, cfg: RotateConfig) {
+        self.inner.lock().await.rotate = cfg;
     }
 
     pub async fn append(&self, actor: impl Into<String>, event: AuditEvent) -> Result<()> {
@@ -109,11 +127,108 @@ impl AuditLog {
         inner.seq = seq;
         inner.last_hmac = hmac;
 
+        if inner.rotate.max_bytes > 0 {
+            let path = inner.log_path.clone();
+            let size_only = RotateConfig {
+                max_bytes: inner.rotate.max_bytes,
+                max_age_days: 0,
+            };
+            let _ = Self::rotate_locked(&mut inner, &path, &size_only);
+        }
+
         Ok(())
     }
 
     pub async fn seq(&self) -> u64 {
         self.inner.lock().await.seq
+    }
+
+    /// rotate the active log into a sealed segment when a size or age trigger fires.
+    /// the running chain is untouched: seq and last_hmac stay, so the next appended entry
+    /// links to the rotated segment's last hmac. returns the new segment when one was written.
+    pub async fn maybe_rotate(
+        &self,
+        log_path: &Path,
+        cfg: &RotateConfig,
+    ) -> Result<Option<rotate::Segment>> {
+        if !cfg.enabled() {
+            return Ok(None);
+        }
+        let mut inner = self.inner.lock().await;
+        Self::rotate_locked(&mut inner, log_path, cfg)
+    }
+
+    pub async fn enforce_segment_retention(&self, dir: &Path, retain_days: u32) -> Result<u64> {
+        let _guard = self.inner.lock().await;
+        rotate::enforce_segment_retention(dir, retain_days)
+    }
+
+    fn rotate_locked(
+        inner: &mut LogInner,
+        log_path: &Path,
+        cfg: &RotateConfig,
+    ) -> Result<Option<rotate::Segment>> {
+        if !cfg.enabled() {
+            return Ok(None);
+        }
+
+        let len = inner.file.metadata().map(|m| m.len()).unwrap_or(0);
+        if len == 0 {
+            return Ok(None);
+        }
+
+        let mut hit = cfg.max_bytes > 0 && len >= cfg.max_bytes;
+        if !hit && cfg.max_age_days == 0 {
+            return Ok(None);
+        }
+
+        let content = std::fs::read_to_string(log_path)?;
+        if !hit && cfg.max_age_days > 0 {
+            if let Some(ts) = rotate::oldest_ts(&content) {
+                let cutoff = Utc::now() - chrono::Duration::days(cfg.max_age_days as i64);
+                if ts < cutoff {
+                    hit = true;
+                }
+            }
+        }
+        if !hit {
+            return Ok(None);
+        }
+
+        let sum = match rotate::summarize(&content) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let dir = log_path.parent().unwrap_or_else(|| Path::new("."));
+        inner.file.sync_all()?;
+        let seg = rotate::seal_segment(dir, content.as_bytes(), &sum)?;
+
+        let mut topts = std::fs::OpenOptions::new();
+        topts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            topts.mode(0o600);
+        }
+        topts.open(log_path)?;
+
+        let mut aopts = std::fs::OpenOptions::new();
+        aopts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            aopts.mode(0o600);
+        }
+        inner.file = aopts.open(log_path)?;
+
+        if let Some(parent) = log_path.parent() {
+            if let Ok(d) = std::fs::File::open(parent) {
+                let _ = d.sync_all();
+            }
+        }
+
+        Ok(Some(seg))
     }
 
     pub fn read_recent(log_path: &Path, limit: usize) -> Result<Vec<AuditEntry>> {
@@ -133,21 +248,26 @@ impl AuditLog {
     }
 
     fn scan_tail(log_path: &Path, _key: &[u8]) -> Result<(u64, String)> {
-        if !log_path.exists() {
-            return Ok((0, chain::GENESIS_HMAC.to_string()));
-        }
-
-        let content = std::fs::read_to_string(log_path)?;
         let mut seq = 0u64;
         let mut last_hmac = chain::GENESIS_HMAC.to_string();
 
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
+        if log_path.exists() {
+            let content = std::fs::read_to_string(log_path)?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(entry) = serde_json::from_str::<AuditEntry>(line) {
+                    seq = entry.seq;
+                    last_hmac = entry.hmac.clone();
+                }
             }
-            if let Ok(entry) = serde_json::from_str::<AuditEntry>(line) {
-                seq = entry.seq;
-                last_hmac = entry.hmac.clone();
+        }
+
+        if seq == 0 {
+            let dir = log_path.parent().unwrap_or_else(|| Path::new("."));
+            if let Some((rseq, rhmac)) = rotate::recover_tail(dir) {
+                return Ok((rseq, rhmac));
             }
         }
 

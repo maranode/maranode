@@ -252,21 +252,21 @@ Every inference produces a signed, offline-verifiable receipt binding the model 
 
 | | |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Design, trust model, threat model |
-| [ROADMAP.md](ROADMAP.md) | What is built, what is next, what we will not do |
-| [HANDBOOK.md](HANDBOOK.md) | Full feature inventory, status-tagged against the source |
-| [docs/install.md](docs/install.md) | Installation and supported platforms |
-| [docs/usage.md](docs/usage.md) | CLI and HTTP API reference |
-| [docs/users.md](docs/users.md) | User accounts and SSO |
-| [docs/workspaces.md](docs/workspaces.md) | Workspace isolation |
-| [docs/compliance.md](docs/compliance.md) | Audit log, compliance exports, evidence bundles |
-| [docs/receipt.md](docs/receipt.md) | Signed receipts and offline verification |
-| [docs/grounding.md](docs/grounding.md) | RAG grounding proof |
-| [docs/verification.md](docs/verification.md) | Network isolation and attestation |
-| [docs/erasure.md](docs/erasure.md) | Crypto-shred and right to erasure |
-| [docs/reproducible-inference.md](docs/reproducible-inference.md) | Deterministic mode and replay |
-| [docs/document-intelligence.md](docs/document-intelligence.md) | PDF ingest and RAG |
-| [Development.md](Development.md) | Build, GPU backends, benchmarking, troubleshooting |
+| [Architecture](architecture.md) | Design, trust model, threat model |
+| [Roadmap](roadmap.md) | What is built, what is next, what we will not do |
+| [Handbook](handbook.md) | Full feature inventory, status-tagged against the source |
+| [Installation](install.md) | Installation and supported platforms |
+| [Usage](usage.md) | CLI and HTTP API reference |
+| [Users & auth](users.md) | User accounts and SSO |
+| [Workspaces](workspaces.md) | Workspace isolation |
+| [Compliance](compliance.md) | Audit log, compliance exports, evidence bundles |
+| [Signed receipts](receipt.md) | Signed receipts and offline verification |
+| [Grounding proof](grounding.md) | RAG grounding proof |
+| [Network verification](verification.md) | Network isolation and attestation |
+| [Crypto-shred & erasure](erasure.md) | Crypto-shred and right to erasure |
+| [Reproducible inference](reproducible-inference.md) | Deterministic mode and replay |
+| [Document intelligence](document-intelligence.md) | PDF ingest and RAG |
+| [Development](development.md) | Build, GPU backends, benchmarking, troubleshooting |
 
 ---
 

@@ -147,14 +147,10 @@ pub struct SamlConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LoggingConfig {
-    /// when true, full prompt and response content is written into the audit log.
-    /// disabled by default — only hashed prompt is logged.
-    /// requires explicit opt-in; treat the audit log as sensitive when enabled.
     pub log_prompts: bool,
-    /// how many days of content-logged entries to retain when pruning.
-    /// only applies to entries that contain prompt/response content.
-    /// 0 means no automatic pruning.
     pub content_log_retention_days: u32,
+    pub audit_max_mb: u64,
+    pub audit_max_age_days: u32,
 }
 
 impl Default for LoggingConfig {
@@ -162,6 +158,8 @@ impl Default for LoggingConfig {
         Self {
             log_prompts: false,
             content_log_retention_days: 90,
+            audit_max_mb: 256,
+            audit_max_age_days: 0,
         }
     }
 }
@@ -176,9 +174,7 @@ pub struct SmtpConfig {
     pub port: u16,
     pub username: Option<String>,
     pub password: Option<String>,
-    /// envelope From address for outgoing mail
     pub from: String,
-    /// use STARTTLS (true) or plain TCP (false); TLS-on-connect is not supported
     #[serde(default = "bool_true")]
     pub starttls: bool,
 }
@@ -188,13 +184,7 @@ fn bool_true() -> bool { true }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IntegrityConfig {
-    /// where to look for .mrn-baseline files. default: <data_dir>/baselines/
     pub baselines_dir: Option<PathBuf>,
-
-    /// what to do on behavioral drift: allow, warn, or refuse
-    /// allow: run inference as normal, just log the drift event
-    /// warn: log the event and emit a tracing warning
-    /// refuse: block the model from serving until restarted
     #[serde(default = "default_drift_action")]
     pub drift_action: DriftAction,
 }
@@ -239,15 +229,9 @@ impl Default for RegistryConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TpmConfig {
-    /// enable TPM sealing for workspace KEK and audit HMAC key
     pub enabled: bool,
-    /// PCR indices to seal against (comma-separated, e.g. "0,7")
-    /// defaults to "0,7" (firmware + Secure Boot)
     pub pcr_indices: String,
-    /// passphrase used for the software fallback when TPM is unavailable
-    /// must be set in config or via MARANODE_TPM_PASSPHRASE env var
     pub software_passphrase: Option<String>,
-    /// which key purposes to seal: "workspace-kek", "audit-hmac", "admin-cred"
     pub seal_purposes: Vec<String>,
 }
 

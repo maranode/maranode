@@ -393,8 +393,17 @@ audit log). `maranode audit restore <zip>` restores them (`--force` to overwrite
 **Signing key endpoint** — **[Done]**. `GET /v1/audit/signing-key` returns the
 node public signing key so a consumer can pin it.
 
-**Audit log rotation** — **[Planned]**. The log file grows without bound today.
-Rotation by size or date, keeping chain continuity across files, is not built yet.
+**Audit log rotation** — **[Done]**. The active log is rotated once it passes a
+size limit (`logging.audit_max_mb`, default 256) or its oldest entry passes an age
+limit (`logging.audit_max_age_days`, off by default). The rotated part is deflate
+compressed into a sealed segment under `<data_dir>/audit-rotated/`, listed in a
+`segments.json` manifest with the seq range and a SHA-256 of the segment file. The
+HMAC chain does not reset: the next active log continues from the segment last
+hmac, and a restart with an empty active log recovers the seq from the manifest.
+Size rotation runs inline on append; the retention scheduler handles the age
+trigger and drops segments older than the retention horizon. `maranode audit
+verify` walks every segment and then the active file as one chain; `maranode audit
+segments` lists the sealed segments. Logic in `maranode-audit/rotate.rs`.
 
 ### 8.1 Every audit event type
 

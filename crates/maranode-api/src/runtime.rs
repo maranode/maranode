@@ -23,10 +23,10 @@ pub struct RuntimeSettings {
     pub system_prompt: Option<String>,
     pub identity: IdentityConfig,
     pub air_gap: bool,
-    /// when true, full prompt and response text is written into the audit log
     pub log_prompts: bool,
-    /// retention in days for content-logged entries (0 = no automatic pruning)
     pub content_log_retention_days: u32,
+    pub audit_max_mb: u64,
+    pub audit_max_age_days: u32,
     pub smtp: Option<SmtpCfg>,
     /// hex-encoded 32-byte AES-256-GCM key; when set, prompts and responses are encrypted
     /// at the API layer (TEE deployments). None = plaintext (default).
