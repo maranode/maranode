@@ -45,6 +45,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::audit::router())
         .merge(routes::rag::router())
         .merge(routes::stats::router())
+        .merge(routes::metrics::router())
         .merge(routes::workspaces::router())
         .merge(routes::users::router())
         .merge(routes::reset::router())

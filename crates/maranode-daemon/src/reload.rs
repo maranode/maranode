@@ -245,6 +245,8 @@ pub fn runtime_from_config(
         content_log_retention_days: cfg.logging.content_log_retention_days,
         audit_max_mb: cfg.logging.audit_max_mb,
         audit_max_age_days: cfg.logging.audit_max_age_days,
+        metrics_enabled: cfg.metrics.enabled,
+        metrics_require_auth: cfg.metrics.require_auth,
         smtp: cfg.smtp.as_ref().map(|s| SmtpCfg {
             host: s.host.clone(),
             port: s.port,

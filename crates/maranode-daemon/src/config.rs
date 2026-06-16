@@ -37,6 +37,7 @@ pub struct DaemonConfig {
     pub change_mgmt: ChangeManagementConfig,
     pub dlp: DlpConfig,
     pub tpm: TpmConfig,
+    pub metrics: MetricsConfig,
     pub smtp: Option<SmtpConfig>,
     /// hex-encoded 32-byte key for AES-256-GCM prompt/response encryption in TEE mode.
     /// generate with: maranode tee keygen
@@ -163,6 +164,23 @@ impl Default for LoggingConfig {
             content_log_retention_days: 90,
             audit_max_mb: 256,
             audit_max_age_days: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsConfig {
+    /// expose Prometheus metrics at /metrics. off by default.
+    pub enabled: bool,
+    pub require_auth: bool,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            require_auth: true,
         }
     }
 }
@@ -383,6 +401,7 @@ impl Default for DaemonConfig {
             change_mgmt: ChangeManagementConfig::default(),
             dlp: DlpConfig::default(),
             tpm: TpmConfig::default(),
+            metrics: MetricsConfig::default(),
             smtp: None,
             tee_encrypt_key: None,
         }

@@ -10,6 +10,7 @@ pub mod registry;
 pub mod embeddings;
 pub mod health;
 pub mod identity;
+pub mod metrics;
 pub mod models;
 pub mod rag;
 pub mod stats;

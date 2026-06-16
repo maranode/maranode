@@ -898,8 +898,14 @@ mobile layout are still open (see TODO).
 **Approval UI** — **[Done]**. The model approval workflow has its own web view at
 `/v1/registry/ui`, see section 13.
 
-**Prometheus metrics** — **[Planned]**. Local-only metrics export is on the
-roadmap.
+**Prometheus metrics** — **[Done]**. `GET /metrics` returns the Prometheus text
+format. It is off by default; set `[metrics] enabled = true` to turn it on, and it
+stays behind the admin key unless `[metrics] require_auth = false`. Exposes request
+and error counters, prompt/response token counters, summed handler duration, plus
+gauges for uptime, inference queue depth, last audit sequence, workspace count, and
+the air-gap, isolation and audit-freeze flags. Bind the daemon to localhost or keep
+it behind the air-gap so the endpoint is not reachable from outside the host.
+Encoder and route in `maranode-api/routes/metrics.rs`.
 
 **Native TLS** — **[Done]**. Set `tls_cert` and `tls_key` in config, or pass
 `--tls-cert` / `--tls-key` (env `MARANODE_TLS_CERT` / `MARANODE_TLS_KEY`), and the
@@ -1069,7 +1075,7 @@ cache, zero-downtime upgrades, minimal hardened OS image (immutable root, secure
 boot, OVA/QCOW2).
 
 **Runtime** — **[Planned]**: split one inference across CPU+GPU, exact
-per-tokenizer budgeting, Prometheus metrics.
+per-tokenizer budgeting.
 
 **RAG** — **[Planned]**: code-aware chunking and code intelligence, local
 fine-tuning workflow.

@@ -27,6 +27,8 @@ pub struct RuntimeSettings {
     pub content_log_retention_days: u32,
     pub audit_max_mb: u64,
     pub audit_max_age_days: u32,
+    pub metrics_enabled: bool,
+    pub metrics_require_auth: bool,
     pub smtp: Option<SmtpCfg>,
     /// hex-encoded 32-byte AES-256-GCM key; when set, prompts and responses are encrypted
     /// at the API layer (TEE deployments). None = plaintext (default).

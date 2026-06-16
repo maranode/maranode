@@ -23,6 +23,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
 - CLI (`maranode` + `maranoded`), web UI, native TLS (rustls) or Unix socket, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)
+- Opt-in Prometheus metrics endpoint for self-hosted ops dashboards
 - Benchmark tool, integration and e2e test suite, threat model, proof demo
 
 ---
@@ -55,10 +56,6 @@ These are items that are partially built or missing from an otherwise mature run
 - **Reproducible build verification** — the script is in `scripts/`; it needs an independent run confirming the binary matches source before we can publish the claim.
 - **Third-party security audit** — one external firm, published report. Until this is done we can make assertions but cannot prove them to an auditor.
 
-### Operations
-
-- **Prometheus metrics** — local-only export, no scraping outside the host. Needed for self-hosted ops dashboards.
-
 ### Web UI
 
 - **Remaining gaps in the browser UI** — several API capabilities (generation parameters, workspace advanced settings) were recently added but polish and edge-case handling is still in progress.
@@ -67,7 +64,6 @@ These are items that are partially built or missing from an otherwise mature run
 - Both NPU backends have passing benchmark numbers on real hardware
 - Signed release artifacts are available and the cosign verification command is documented
 - Security audit report is published
-- Prometheus endpoint ships and is documented
 
 ---
 
