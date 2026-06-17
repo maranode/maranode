@@ -19,7 +19,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - TPM 2.0 PCR read, binary self-hash at start, key sealing, attestation reports, TEE detection
 - Workspaces with per-workspace quotas, system prompts, audit segments, crypto-shred
 - Local user accounts, API-key auth, OIDC, SAML SSO (basic), session management, per-IP rate limiting
-- Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, encrypted store
+- Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, code-aware chunking, encrypted store
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
 - CLI (`maranode` + `maranoded`), web UI, native TLS (rustls) or Unix socket, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)
@@ -109,7 +109,6 @@ A minimal Linux distribution as an ISO or pre-built VM image. Maranode runs on i
 ### Specialized Inference
 
 - **Code intelligence** — parsing, refactoring assistance, vulnerability scanning. Enterprise tier.
-- **Code-aware RAG chunking** — chunk by function and symbol boundaries rather than token windows. Core.
 - **Local fine-tuning workflow** — a fine-tuning path that never sends data to model trainers. Enterprise.
 
 **Exit criteria:**

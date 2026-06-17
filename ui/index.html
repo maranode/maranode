@@ -143,7 +143,7 @@
         <div id="input-box">
           <textarea id="chat-input" rows="1"
             placeholder="Ask anything… or attach a file for document analysis"></textarea>
-          <input type="file" id="file-input" accept=".txt,.md,.csv,.log,.rst,.pdf">
+          <input type="file" id="file-input" accept=".txt,.md,.csv,.log,.rst,.json,.yaml,.yml,.toml,.html,.css,.rs,.py,.js,.ts,.go,.java,.c,.cpp,.h,.sh,.sql,.pdf">
           <button class="icon-btn" id="attach-btn" title="Attach a file for this message"
             onclick="document.getElementById('file-input').click()">
             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
@@ -286,12 +286,12 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
                 <input type="text" id="rag-source" placeholder="e.g. annual-report-2024.pdf">
               </div>
               <div>
-                <label class="field-label">Files <span class="field-label-hint">.txt · .md · .csv · .pdf</span></label>
-                <input type="file" id="rag-file-input" accept=".txt,.md,.csv,.log,.rst,.pdf" multiple style="display:none">
+                <label class="field-label">Files <span class="field-label-hint">text · source code · .pdf</span></label>
+                <input type="file" id="rag-file-input" accept=".txt,.md,.csv,.log,.rst,.json,.yaml,.yml,.toml,.html,.css,.rs,.py,.js,.ts,.go,.java,.c,.cpp,.h,.sh,.sql,.pdf" multiple style="display:none">
                 <div id="rag-drop-zone" onclick="document.getElementById('rag-file-input').click()">
                   <div class="drop-icon">📄</div>
                   <div id="rag-file-label" class="drop-label">Click to choose files, or drag & drop</div>
-                  <div class="drop-hint">Supported: .txt, .md, .csv, .log, .rst, .pdf · Multiple files allowed</div>
+                  <div class="drop-hint">Text, source code (.rs, .py, .js, …) and .pdf · Multiple files allowed</div>
                 </div>
               </div>
               <div>

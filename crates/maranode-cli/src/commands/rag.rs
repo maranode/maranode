@@ -7,7 +7,7 @@ use colored::Colorize;
 #[derive(Subcommand)]
 pub enum RagCommand {
     /// add document to RAG collection.
-    /// supported types: .txt, .md, .csv, .log, .rst, .pdf
+    /// supported types: text, source code (.rs, .py, .js, .go, …) and .pdf
     Add {
         path: PathBuf,
         #[arg(long)]

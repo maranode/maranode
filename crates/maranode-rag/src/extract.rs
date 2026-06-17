@@ -43,26 +43,41 @@ pub fn extract(bytes: &[u8], filename: &str) -> Result<DocumentContent> {
         .unwrap_or("")
         .to_lowercase();
 
-    match ext.as_str() {
-        "txt" | "md" | "markdown" | "csv" | "log" | "rst" | "text" => {
-            let text = std::str::from_utf8(bytes).map_err(|_| {
-                anyhow::anyhow!(
-                    "file '{}' is not valid UTF-8: only UTF-8 text files are supported",
-                    filename
-                )
-            })?;
-            Ok(DocumentContent::from_plain(text.to_string()))
-        }
-        "pdf" => extract_pdf(bytes, filename),
-        "" => bail!(
-            "file '{}' has no extension: supported: txt, md, csv, pdf",
-            filename
-        ),
-        other => bail!(
-            "unsupported file type '.{}': supported: txt, md, csv, pdf",
-            other
-        ),
+    if ext == "pdf" {
+        return extract_pdf(bytes, filename);
     }
+    if ext.is_empty() {
+        bail!(
+            "file '{}' has no extension: supported: text, source code, and pdf",
+            filename
+        );
+    }
+    if is_text_like(&ext) {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            anyhow::anyhow!(
+                "file '{}' is not valid UTF-8: only UTF-8 text files are supported",
+                filename
+            )
+        })?;
+        return Ok(DocumentContent::from_plain(text.to_string()));
+    }
+    bail!(
+        "unsupported file type '.{}': supported: text, source code, and pdf",
+        ext
+    )
+}
+
+/// prose, data and source-code extensions we read as UTF-8 text.
+fn is_text_like(ext: &str) -> bool {
+    matches!(
+        ext,
+        "txt" | "md" | "markdown" | "text" | "rst" | "csv" | "tsv" | "log"
+            | "json" | "yaml" | "yml" | "toml" | "ini" | "xml" | "html" | "htm" | "css"
+            | "rs" | "py" | "pyi" | "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx"
+            | "go" | "java" | "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx"
+            | "cs" | "kt" | "kts" | "swift" | "scala" | "php" | "dart" | "proto"
+            | "rb" | "sh" | "bash" | "sql"
+    )
 }
 
 pub fn extract_text(bytes: &[u8], filename: &str) -> Result<String> {
@@ -307,5 +322,13 @@ mod tests {
     #[test]
     fn legacy_extract_text_works() {
         assert_eq!(extract_text(b"hello", "doc.txt").unwrap(), "hello");
+    }
+
+    #[test]
+    fn source_code_accepted_as_text() {
+        let doc = extract(b"fn main() {\n    println!(\"hi\");\n}\n", "main.rs").unwrap();
+        assert!(doc.full_text.contains("fn main"));
+        let py = extract(b"def f():\n    return 1\n", "app.py").unwrap();
+        assert!(py.full_text.contains("def f"));
     }
 }

@@ -131,7 +131,7 @@ impl RagEngine {
             let cfg = self.config.read().expect("rag config lock poisoned");
             (cfg.chunk_size, cfg.chunk_overlap)
         };
-        let rich_chunks = chunk_document(&doc, chunk_size, chunk_overlap);
+        let rich_chunks = chunk_document(&doc, source, chunk_size, chunk_overlap);
         if rich_chunks.is_empty() {
             anyhow::bail!("document '{source}' produced no text to index");
         }

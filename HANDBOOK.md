@@ -732,10 +732,11 @@ collections. `maranode rag add`, `maranode rag list`, `maranode rag search`. API
 
 **Ingest documents** — **[Done]**. `POST /v1/rag/documents` (and
 `/v1/rag/documents/upload`) ingest a document: it is chunked, embedded and stored.
-Plain text, Markdown, CSV, log and reStructuredText are supported directly.
-Chunking in `maranode-rag/chunk.rs`, controlled by `chunk_size`, `chunk_overlap`,
-`top_k`, `min_score`, `max_context_chars`. Event `rag_document_ingested`,
-retrieval logged as `rag_retrieval`.
+Plain text, Markdown, CSV, log, reStructuredText, common data formats (JSON, YAML,
+TOML, HTML, CSS) and source code (Rust, Python, JS/TS, Go, Java, C/C++, C#, and
+more) are supported directly. Chunking in `maranode-rag/chunk.rs`, controlled by
+`chunk_size`, `chunk_overlap`, `top_k`, `min_score`, `max_context_chars`. Event
+`rag_document_ingested`, retrieval logged as `rag_retrieval`.
 
 **PDF text extraction** — **[Done]**. PDF ingest pulls text with page numbers and
 document metadata. Extractor in `maranode-rag/extract.rs` (`DocumentContent`,
@@ -764,8 +765,15 @@ to the persistent store: `anyone`, `admin_only`, or `allowlist` (with
 `ingest_allowlist` of API keys). The admin key is always allowed. Note the
 ephemeral extract path is not governed by this, only permanent ingest is.
 
-**Code-aware chunking / code intelligence** — **[Planned]**. Chunk by
-function/class and code Q&A are on the roadmap.
+**Code-aware chunking** — **[Done]**. Source files are split along symbol
+boundaries instead of fixed character windows: brace languages cut on top-level
+`{ }` blocks (functions, structs, classes, impls) and Python on `def`/`class`,
+with decorators and leading doc comments kept attached. Small units merge up to
+`chunk_size`, an oversized unit falls back to the character chunker, and each chunk
+records its symbol name as the section label. Language is picked from the file
+extension; non-code files keep the prose path. Logic in `maranode-rag/chunk.rs`
+(`chunk_code`). Broader code intelligence (syntax-aware search, code Q&A) stays on
+the roadmap.
 
 **Local fine-tuning workflow** — **[Planned]**. A fine-tuning path that never sends
 data out is not built.
