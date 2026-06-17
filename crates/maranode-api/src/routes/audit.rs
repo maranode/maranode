@@ -17,8 +17,11 @@ use maranode_audit::log::{default_key_path, default_log_path, AuditLog};
 use maranode_audit::retention::prune_log;
 use maranode_audit::sign;
 
+use maranode_common::user::Permission;
+
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
+use crate::user_ctx::authorize_permission;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -28,28 +31,6 @@ pub fn router() -> Router<AppState> {
         .route("/v1/audit/bundle/:workspace", get(download_workspace_bundle))
         .route("/v1/audit/prune", post(do_prune))
         .route("/v1/audit/signing-key", get(get_signing_key))
-}
-
-fn require_admin_hdr(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    let key = state
-        .rt()
-        .admin_key
-        .as_deref()
-        .map(str::to_string)
-        .unwrap_or_default();
-    let key = key.as_str();
-    if key.is_empty() {
-        return Ok(());
-    }
-    let provided = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    if !maranode_common::secure::ct_eq_str(provided, key) {
-        return Err(ApiError::forbidden("admin key required"));
-    }
-    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,7 +57,7 @@ async fn list_entries(
     headers: HeaderMap,
     Query(q): Query<AuditQuery>,
 ) -> ApiResult<Json<Vec<AuditEntryView>>> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditView).await?;
     let limit = q.limit.min(500);
     let log_path = default_log_path(&state.data_dir);
 
@@ -109,7 +90,7 @@ async fn export_entries(
     headers: HeaderMap,
     Query(q): Query<ExportQuery>,
 ) -> ApiResult<Response> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditExport).await?;
 
     let (log_path, filter) = resolve_log_and_filter(&state, q.workspace.as_deref(), &q)?;
     let ws_label = q.workspace.as_deref().unwrap_or("global");
@@ -176,7 +157,7 @@ fn resolve_log_and_filter(
 }
 
 async fn download_bundle(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Response> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditExport).await?;
     build_bundle_response(&state, None).await
 }
 
@@ -185,7 +166,7 @@ async fn download_workspace_bundle(
     headers: HeaderMap,
     axum::extract::Path(slug): axum::extract::Path<String>,
 ) -> ApiResult<Response> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditExport).await?;
     build_bundle_response(&state, Some(&slug)).await
 }
 
@@ -259,7 +240,7 @@ async fn do_prune(
     headers: HeaderMap,
     Json(req): Json<PruneReq>,
 ) -> ApiResult<Json<PruneResp>> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditPrune).await?;
 
     let log_path = default_log_path(&state.data_dir);
     let pruned =
@@ -278,7 +259,7 @@ async fn get_signing_key(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> ApiResult<Json<SigningKeyResp>> {
-    require_admin_hdr(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::AuditView).await?;
     let key = sign::load_or_create(&state.data_dir)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(SigningKeyResp {

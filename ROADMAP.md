@@ -18,7 +18,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Proof-carrying inference: signed receipts, reproducible deterministic mode, receipt replay
 - TPM 2.0 PCR read, binary self-hash at start, key sealing, attestation reports, TEE detection
 - Workspaces with per-workspace quotas, system prompts, audit segments, crypto-shred
-- Local user accounts, API-key auth, OIDC, SAML SSO (basic), session management, per-IP rate limiting
+- Local user accounts, API-key auth, OIDC, SAML SSO (basic), session management, per-IP rate limiting, named-permission RBAC (admin/operator/auditor/viewer)
 - Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, code-aware chunking, encrypted store
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
@@ -75,7 +75,6 @@ The building blocks for a paying enterprise customer are largely present. The re
 
 - **Linux namespace isolation enforcement** — workspace network namespaces have full lifecycle (create, delete, exist check) but inference requests are not yet routed through the namespace. The enforcement step is missing.
 - **LDAP / Active Directory group sync** — login against an LDAP directory works; group membership sync and group-to-workspace mapping are not built yet.
-- **Role-based access control (RBAC)** — fine-grained roles beyond "admin / workspace key holder". Needed before any serious multi-team deployment.
 
 ### Infrastructure
 

@@ -769,7 +769,8 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
       <label class="field-label">Role</label>
       <select id="user-new-role">
         <option value="viewer">Viewer - chat only</option>
-        <option value="operator">Operator - chat + RAG ingest + audit view</option>
+        <option value="operator">Operator - chat + RAG ingest + models + audit view</option>
+        <option value="auditor">Auditor - audit view + compliance export</option>
         <option value="admin">Admin - full access</option>
       </select>
     </div>
@@ -794,6 +795,7 @@ maranode model import /path/to/bge-m3.gguf --name bge-m3 --tag latest --type emb
       <select id="user-edit-role">
         <option value="viewer">Viewer</option>
         <option value="operator">Operator</option>
+        <option value="auditor">Auditor</option>
         <option value="admin">Admin</option>
       </select>
     </div>

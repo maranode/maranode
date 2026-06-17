@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use maranode_common::events::AuditEvent;
 use maranode_common::models::{ModelId, ModelType};
+use maranode_common::user::Permission;
 
 use crate::error::{ApiError, ApiResult};
 use crate::openai::{ModelListResponse, ModelObject};
 use crate::state::AppState;
+use crate::user_ctx::authorize_permission;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -131,31 +133,12 @@ async fn list_models_details(
     Ok(Json(PagedDetails { data, total, has_more }))
 }
 
-fn require_admin(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    let rt = state.rt();
-    let Some(admin_key) = &rt.admin_key else {
-        return Ok(());
-    };
-    if admin_key.is_empty() {
-        return Ok(());
-    }
-    let provided = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    if !maranode_common::secure::ct_eq_str(provided, admin_key) {
-        return Err(ApiError::forbidden("admin key required"));
-    }
-    Ok(())
-}
-
 async fn remove_model(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(raw_id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::ModelManage).await?;
     let model_id = ModelId::parse(&raw_id).ok_or_else(|| {
         ApiError::bad_request(format!("invalid model id '{}': expected name:tag", raw_id))
     })?;

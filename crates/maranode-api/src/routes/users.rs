@@ -116,6 +116,8 @@ struct UserView {
     username: String,
     email: Option<String>,
     role: String,
+    /// capabilities of the user's role, so clients can adapt the UI
+    permissions: Vec<String>,
     provider: String,
     active: bool,
     created_at: String,
@@ -129,6 +131,7 @@ impl From<&User> for UserView {
             username: u.username.clone(),
             email: u.email.clone(),
             role: u.role.to_string(),
+            permissions: u.role.permissions().iter().map(|p| p.as_str().to_string()).collect(),
             provider: u.provider.as_str().to_string(),
             active: u.active,
             created_at: u.created_at.to_rfc3339(),

@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::json;
 
-use maranode_common::user::{Role, User};
+use maranode_common::user::{Permission, Role, User};
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -17,6 +17,23 @@ pub struct UserCtx(pub User);
 impl UserCtx {
     pub fn username(&self) -> &str {
         &self.0.username
+    }
+
+    pub fn role(&self) -> &Role {
+        &self.0.role
+    }
+
+    pub fn can(&self, perm: Permission) -> bool {
+        self.0.role.has(perm)
+    }
+
+    /// fail the request with 403 unless the user holds this permission.
+    pub fn require(&self, perm: Permission) -> ApiResult<()> {
+        if self.can(perm) {
+            Ok(())
+        } else {
+            Err(ApiError::forbidden("insufficient permissions"))
+        }
     }
 }
 
@@ -90,6 +107,16 @@ pub async fn authorize_privileged(
     }
 
     Err(ApiError::forbidden("admin privileges required"))
+}
+
+/// like [`authorize_privileged`] but checks a specific [`Permission`]. accepts the host
+/// admin key or a session whose role holds the permission.
+pub async fn authorize_permission(
+    headers: &HeaderMap,
+    state: &AppState,
+    perm: Permission,
+) -> ApiResult<()> {
+    authorize_privileged(headers, state, move |r| r.has(perm)).await
 }
 
 #[async_trait]

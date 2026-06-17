@@ -868,8 +868,20 @@ completed.
 **Per-IP rate limiting** — **[Done]**. The API rate-limits per client IP, added in
 the "api rate limit per ip address" commit, which protects the auth endpoints.
 
-**Role-based access control** — **[Planned]**. Fine-grained RBAC with named
-permissions is not built yet.
+**Role-based access control** — **[Done]**. Named permissions (`chat`,
+`rag_ingest`, `model_manage`, `audit_view`, `audit_export`, `audit_prune`,
+`user_manage`, `workspace_manage`, and more) are the single source of truth in
+`maranode-common/user.rs`; each role maps to a fixed set via `Role::permissions()`,
+and the legacy `can_*` helpers delegate to `Role::has()`. Four roles ship: **admin**
+(everything), **operator** (chat, RAG, model management, audit view), **auditor**
+(chat plus audit view and compliance export — separation of duties, cannot prune or
+manage), and **viewer** (chat only). Routes enforce a specific permission through
+`authorize_permission()` / `UserCtx::require()`; the host admin key still passes as a
+super-user and, with no admin key set, the daemon stays in open development mode.
+Audit and model endpoints are wired to this — so an operator or auditor session
+reaches them by role instead of needing the master key. `GET /v1/auth/me` returns
+the caller's permission list. Migrating the remaining admin-key routes (workspaces,
+DLP, incident) to named permissions is a follow-up.
 
 ---
 
