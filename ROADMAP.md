@@ -20,6 +20,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Workspaces with per-workspace quotas, system prompts, audit segments, crypto-shred
 - Local user accounts, API-key auth, OIDC, SAML SSO (basic), session management, per-IP rate limiting, named-permission RBAC (admin/operator/auditor/viewer)
 - Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, code-aware chunking, encrypted store
+- Offline heuristic code vulnerability scan (`maranode scan`)
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
 - CLI (`maranode` + `maranoded`), web UI, native TLS (rustls) or Unix socket, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)
@@ -107,7 +108,7 @@ A minimal Linux distribution as an ISO or pre-built VM image. Maranode runs on i
 
 ### Specialized Inference
 
-- **Code intelligence** — parsing, refactoring assistance, vulnerability scanning. Enterprise tier.
+- **Code intelligence** — parsing, refactoring assistance, deeper vulnerability analysis. Enterprise tier. (Basic heuristic vulnerability scanning ships in Core via `maranode scan`.)
 - **Local fine-tuning workflow** — a fine-tuning path that never sends data to model trainers. Enterprise.
 
 **Exit criteria:**

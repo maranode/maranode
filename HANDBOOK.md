@@ -772,8 +772,18 @@ with decorators and leading doc comments kept attached. Small units merge up to
 `chunk_size`, an oversized unit falls back to the character chunker, and each chunk
 records its symbol name as the section label. Language is picked from the file
 extension; non-code files keep the prose path. Logic in `maranode-rag/chunk.rs`
-(`chunk_code`). Broader code intelligence (syntax-aware search, code Q&A) stays on
-the roadmap.
+(`chunk_code`).
+
+**Code vulnerability scan** — **[Done]**. A dependency-free heuristic scanner in
+`maranode-rag/codescan.rs` flags common insecure patterns per line: hard-coded
+credentials (incl. private-key blocks and AWS key ids), weak hashes (MD5/SHA-1),
+SQL built by string concatenation or f-strings (parameterised queries are left
+alone), dynamic code or shell execution (`eval`, `os.system`, `shell=True`),
+disabled TLS verification (`verify=False`, `InsecureSkipVerify: true`, …), and
+unsafe deserialization (`pickle.loads`, `yaml.load`). Each finding carries a rule
+id, severity, line number and snippet. Exposed offline as `maranode scan <path>`
+(`--min-severity`). It is a review hint, not a substitute for a full SAST tool;
+broader code intelligence (syntax-aware search, code Q&A) stays on the roadmap.
 
 **Local fine-tuning workflow** — **[Planned]**. A fine-tuning path that never sends
 data out is not built.

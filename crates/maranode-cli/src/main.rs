@@ -112,6 +112,14 @@ enum Commands {
         #[command(subcommand)]
         action: commands::hold::HoldCommand,
     },
+    /// scan local source files for common insecure patterns (heuristic, offline)
+    Scan {
+        /// file or directory to scan
+        path: std::path::PathBuf,
+        /// minimum severity to report: high, medium, low
+        #[arg(long, default_value = "low")]
+        min_severity: String,
+    },
 }
 
 #[tokio::main]
@@ -190,6 +198,9 @@ async fn run() -> Result<()> {
         }
         Commands::Hold { action } => {
             commands::hold::run(action, &cli.host).await?;
+        }
+        Commands::Scan { path, min_severity } => {
+            commands::scan::run(&path, &min_severity)?;
         }
     }
 
