@@ -4,6 +4,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use maranode_common::events::AuditEvent;
+use maranode_common::user::Permission;
 
 use crate::dlp::{self, DlpConfig, ForcepointCfg, PurviewCfg, SymantecCfg};
 use crate::error::ApiError;
@@ -34,9 +35,10 @@ pub struct CollectionImport {
 
 async fn dlp_sync(
     State(state): State<AppState>,
-    _user: UserCtx,
+    user: UserCtx,
     Json(req): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, ApiError> {
+    user.require(Permission::DlpManage)?;
     let dlp_cfg = state.dlp.as_ref();
 
     let imported = match req.provider.to_lowercase().as_str() {

@@ -878,10 +878,11 @@ and the legacy `can_*` helpers delegate to `Role::has()`. Four roles ship: **adm
 manage), and **viewer** (chat only). Routes enforce a specific permission through
 `authorize_permission()` / `UserCtx::require()`; the host admin key still passes as a
 super-user and, with no admin key set, the daemon stays in open development mode.
-Audit and model endpoints are wired to this — so an operator or auditor session
-reaches them by role instead of needing the master key. `GET /v1/auth/me` returns
-the caller's permission list. Migrating the remaining admin-key routes (workspaces,
-DLP, incident) to named permissions is a follow-up.
+Audit, model, workspace, DLP and incident endpoints are all wired to this — so an
+operator or auditor session reaches what its role allows instead of needing the
+master key, and the privileged incident/DLP actions (which previously accepted any
+logged-in user) now require their named permission. `GET /v1/auth/me` returns the
+caller's permission list.
 
 ---
 
@@ -1073,6 +1074,16 @@ development mode.
 `device_selection_test`, `drift_test`, and `e2e/api_test`. These cover the
 sensitive paths: erasure, reproducibility, chain integrity, drift, TPM,
 classification.
+
+**Auth-flow tests** — **[Done]**. Mock-free unit tests for the parts that do not
+need a live identity provider: `maranode-store/user_db.rs` exercises local
+password hashing/verification, session create/resolve/expire/revoke and
+disabled-account rejection, SSO identity lookup by `provider_sub`, and single-use
+password-reset tokens against a temporary SQLite database; `routes/identity.rs`
+tests the SAML assertion parser and XMLDSig helpers (PEM stripping, element
+extraction, `SignedInfo` slicing, and signature rejection on incomplete
+assertions). The live OIDC/LDAP/SAML round-trips still need a real IdP or an HTTP
+mock harness, which stays a follow-up.
 
 **Proof demo** — **[Done]**. `demos/proof-test/` is a runnable end-to-end demo of
 proof-carrying inference: `run-inference.sh`, `sign-receipt.sh`,

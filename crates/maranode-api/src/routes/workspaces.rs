@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use maranode_common::user::Permission;
 use maranode_common::workspace::Workspace;
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
+use crate::user_ctx::authorize_permission;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -27,28 +29,6 @@ pub fn router() -> Router<AppState> {
                 .put(update_workspace)
                 .delete(del_workspace),
         )
-}
-
-fn require_admin(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    let admin_key = state
-        .rt()
-        .admin_key
-        .as_deref()
-        .map(str::to_string)
-        .unwrap_or_default();
-    let admin_key = admin_key.as_str();
-    if admin_key.is_empty() {
-        return Ok(());
-    }
-    let provided = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    if !maranode_common::secure::ct_eq_str(provided, admin_key) {
-        return Err(ApiError::forbidden("admin key required"));
-    }
-    Ok(())
 }
 
 #[derive(Serialize)]
@@ -95,7 +75,7 @@ async fn list_workspaces(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> ApiResult<impl IntoResponse> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::WorkspaceManage).await?;
     let workspaces = state
         .workspace_db
         .lock()
@@ -111,7 +91,7 @@ async fn get_workspace(
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::WorkspaceManage).await?;
     let ws = state
         .workspace_db
         .lock()
@@ -150,7 +130,7 @@ async fn create_workspace(
     headers: HeaderMap,
     Json(req): Json<CreateWorkspaceReq>,
 ) -> ApiResult<impl IntoResponse> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::WorkspaceManage).await?;
 
     let slug = req.slug.trim().to_lowercase();
     if slug.is_empty()
@@ -249,7 +229,7 @@ async fn update_workspace(
     Path(slug): Path<String>,
     Json(req): Json<UpdateWorkspaceReq>,
 ) -> ApiResult<impl IntoResponse> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::WorkspaceManage).await?;
 
     let db = state.workspace_db.lock().await;
     let mut ws = db
@@ -313,7 +293,7 @@ async fn del_workspace(
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
-    require_admin(&state, &headers)?;
+    authorize_permission(&headers, &state, Permission::WorkspaceManage).await?;
 
     let ws = state
         .workspace_db

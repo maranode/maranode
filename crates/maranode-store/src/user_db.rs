@@ -311,3 +311,130 @@ fn row_to_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
             .map(|d| d.with_timezone(&Utc)),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::UserDb;
+    use chrono::Utc;
+    use maranode_common::user::{AuthProvider, Role, User};
+    use uuid::Uuid;
+
+    fn open_db() -> (tempfile::TempDir, UserDb) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = UserDb::open(&dir.path().join("users.db")).unwrap();
+        (dir, db)
+    }
+
+    fn local_user(username: &str, role: Role) -> User {
+        User {
+            id: Uuid::new_v4(),
+            username: username.to_string(),
+            email: Some(format!("{username}@example.test")),
+            password_hash: Some(UserDb::hash_password("s3cret-pw").unwrap()),
+            role,
+            provider: AuthProvider::Local,
+            provider_sub: None,
+            active: true,
+            created_at: Utc::now(),
+            last_login: None,
+        }
+    }
+
+    #[test]
+    fn password_hash_roundtrip() {
+        let h = UserDb::hash_password("correct horse battery").unwrap();
+        assert!(UserDb::verify_password("correct horse battery", &h).unwrap());
+        assert!(!UserDb::verify_password("wrong", &h).unwrap());
+    }
+
+    #[test]
+    fn create_and_fetch_preserves_role() {
+        let (_d, db) = open_db();
+        let u = local_user("jane", Role::Operator);
+        db.create(&u).unwrap();
+        let got = db.get_by_username("jane").unwrap().unwrap();
+        assert_eq!(got.id, u.id);
+        assert_eq!(got.role, Role::Operator);
+        assert_eq!(got.provider, AuthProvider::Local);
+    }
+
+    #[test]
+    fn session_resolves_then_revokes() {
+        let (_d, db) = open_db();
+        let u = local_user("bob", Role::Viewer);
+        db.create(&u).unwrap();
+        let token = db.create_session(u.id, 1).unwrap();
+        let resolved = db.resolve_session(&token).unwrap().expect("session resolves");
+        assert_eq!(resolved.username, "bob");
+        db.delete_session(&token).unwrap();
+        assert!(db.resolve_session(&token).unwrap().is_none());
+    }
+
+    #[test]
+    fn expired_session_is_rejected() {
+        let (_d, db) = open_db();
+        let u = local_user("eve", Role::Viewer);
+        db.create(&u).unwrap();
+        let token = db.create_session(u.id, -1).unwrap();
+        assert!(db.resolve_session(&token).unwrap().is_none());
+    }
+
+    #[test]
+    fn disabled_account_session_rejected() {
+        let (_d, db) = open_db();
+        let mut u = local_user("mallory", Role::Operator);
+        db.create(&u).unwrap();
+        let token = db.create_session(u.id, 1).unwrap();
+        assert!(db.resolve_session(&token).unwrap().is_some());
+        u.active = false;
+        db.update(&u).unwrap();
+        assert!(db.resolve_session(&token).unwrap().is_none());
+    }
+
+    #[test]
+    fn revoke_others_keeps_current() {
+        let (_d, db) = open_db();
+        let u = local_user("ops", Role::Operator);
+        db.create(&u).unwrap();
+        let keep = db.create_session(u.id, 1).unwrap();
+        let other = db.create_session(u.id, 1).unwrap();
+        let removed = db.delete_sessions_for_user_except(u.id, &keep).unwrap();
+        assert_eq!(removed, 1);
+        assert!(db.resolve_session(&keep).unwrap().is_some());
+        assert!(db.resolve_session(&other).unwrap().is_none());
+    }
+
+    #[test]
+    fn sso_lookup_by_provider_sub() {
+        let (_d, db) = open_db();
+        let u = User {
+            id: Uuid::new_v4(),
+            username: "sso-jane".into(),
+            email: Some("jane@corp.test".into()),
+            password_hash: None,
+            role: Role::Auditor,
+            provider: AuthProvider::Oidc,
+            provider_sub: Some("oidc-sub-123".into()),
+            active: true,
+            created_at: Utc::now(),
+            last_login: None,
+        };
+        db.create(&u).unwrap();
+        assert_eq!(
+            db.get_by_provider_sub("oidc", "oidc-sub-123").unwrap().map(|g| g.id),
+            Some(u.id)
+        );
+        assert!(db.get_by_provider_sub("oidc", "nope").unwrap().is_none());
+        assert!(db.get_by_provider_sub("saml", "oidc-sub-123").unwrap().is_none());
+    }
+
+    #[test]
+    fn reset_token_is_single_use() {
+        let (_d, db) = open_db();
+        let u = local_user("reset-me", Role::Viewer);
+        db.create(&u).unwrap();
+        let token = db.create_reset_token(u.id).unwrap();
+        assert_eq!(db.consume_reset_token(&token).unwrap(), Some(u.id));
+        assert_eq!(db.consume_reset_token(&token).unwrap(), None);
+    }
+}

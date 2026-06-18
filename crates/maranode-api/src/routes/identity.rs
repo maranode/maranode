@@ -660,3 +660,83 @@ async fn upsert_sso_user_and_session(
 
     Ok(Json(TokenResp { token }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        extract_signed_info_bytes, saml_parse_assertion, saml_verify_signature, strip_pem,
+        xml_element_text,
+    };
+
+    const SAML_XML: &str = r#"<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+  <saml:Assertion>
+    <saml:Subject>
+      <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">jdoe-nameid</saml:NameID>
+    </saml:Subject>
+    <saml:AttributeStatement>
+      <saml:Attribute Name="email"><saml:AttributeValue>jane@corp.example</saml:AttributeValue></saml:Attribute>
+      <saml:Attribute Name="username"><saml:AttributeValue>jane</saml:AttributeValue></saml:Attribute>
+    </saml:AttributeStatement>
+  </saml:Assertion>
+</samlp:Response>"#;
+
+    #[test]
+    fn parses_nameid_email_username() {
+        let (name_id, email, username) = saml_parse_assertion(SAML_XML).unwrap();
+        assert_eq!(name_id, "jdoe-nameid");
+        assert_eq!(email.as_deref(), Some("jane@corp.example"));
+        assert_eq!(username, "jane");
+    }
+
+    #[test]
+    fn username_falls_back_to_nameid() {
+        let xml = r#"<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"><saml:Subject><saml:NameID>solo</saml:NameID></saml:Subject></saml:Assertion>"#;
+        let (name_id, email, username) = saml_parse_assertion(xml).unwrap();
+        assert_eq!(name_id, "solo");
+        assert!(email.is_none());
+        assert_eq!(username, "solo");
+    }
+
+    #[test]
+    fn missing_nameid_is_error() {
+        let xml = r#"<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:Assertion>"#;
+        assert!(saml_parse_assertion(xml).is_err());
+    }
+
+    #[test]
+    fn strip_pem_removes_armor_and_whitespace() {
+        let pem = "-----BEGIN CERTIFICATE-----\nAAAA BBBB\nCCCC\n-----END CERTIFICATE-----\n";
+        assert_eq!(strip_pem(pem), "AAAABBBBCCCC");
+    }
+
+    #[test]
+    fn xml_element_text_handles_prefixes() {
+        assert_eq!(
+            xml_element_text("<ds:SignatureValue>SIGVAL</ds:SignatureValue>", "SignatureValue").as_deref(),
+            Some("SIGVAL")
+        );
+        assert_eq!(
+            xml_element_text("<X509Certificate>CERTDATA</X509Certificate>", "X509Certificate").as_deref(),
+            Some("CERTDATA")
+        );
+        assert!(xml_element_text("<other>x</other>", "SignatureValue").is_none());
+    }
+
+    #[test]
+    fn extract_signed_info_returns_whole_element() {
+        let xml = "<root><ds:SignedInfo><a/></ds:SignedInfo><ds:SignatureValue>x</ds:SignatureValue></root>";
+        let bytes = extract_signed_info_bytes(xml).expect("signed info present");
+        let s = std::str::from_utf8(bytes).unwrap();
+        assert!(s.starts_with("<ds:SignedInfo"));
+        assert!(s.ends_with("</ds:SignedInfo>"));
+        assert!(extract_signed_info_bytes("<root></root>").is_none());
+    }
+
+    #[test]
+    fn verify_signature_rejects_incomplete_assertions() {
+        assert!(saml_verify_signature("<root></root>", None).is_err());
+        assert!(saml_verify_signature("<r><ds:SignedInfo></ds:SignedInfo></r>", None).is_err());
+        let no_cert = "<r><ds:SignedInfo></ds:SignedInfo><ds:SignatureValue>QQ==</ds:SignatureValue></r>";
+        assert!(saml_verify_signature(no_cert, None).is_err());
+    }
+}

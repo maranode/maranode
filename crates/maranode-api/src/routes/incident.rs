@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use maranode_common::events::AuditEvent;
 use maranode_common::incident::{IncidentPhase, IncidentState};
+use maranode_common::user::Permission;
 
 use crate::error::ApiError;
 use crate::incident::{
@@ -47,6 +48,7 @@ async fn declare(
     user: UserCtx,
     Json(req): Json<DeclareRequest>,
 ) -> Result<Json<DeclareResponse>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let mut guard = state.incident.lock().await;
     if let Some(inc) = guard.as_ref() {
         if inc.phase != IncidentPhase::Resolved {
@@ -114,6 +116,7 @@ async fn investigate(
     user: UserCtx,
     Json(req): Json<PhaseRequest>,
 ) -> Result<Json<PhaseResponse>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let mut guard = state.incident.lock().await;
     let incident = guard.as_mut().ok_or_else(|| ApiError::not_found("no active incident"))?;
 
@@ -149,6 +152,7 @@ async fn resolve(
     user: UserCtx,
     Json(req): Json<ResolveRequest>,
 ) -> Result<Json<PhaseResponse>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let mut guard = state.incident.lock().await;
     let incident = guard.as_mut().ok_or_else(|| ApiError::not_found("no active incident"))?;
 
@@ -215,6 +219,7 @@ async fn snapshot(
     State(state): State<AppState>,
     user: UserCtx,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let incident_id = {
         let guard = state.incident.lock().await;
         guard.as_ref().map(|i| i.id.clone()).unwrap_or_else(|| "manual".to_string())
@@ -254,6 +259,7 @@ async fn bg_generate(
     user: UserCtx,
     Json(req): Json<BgGenerateRequest>,
 ) -> Result<Json<BgGenerateResponse>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let (token, cred) = generate_break_glass_cred(&req.purpose);
     let id = cred.id.clone();
     let purpose = cred.purpose.clone();
@@ -275,6 +281,7 @@ async fn bg_use(
     user: UserCtx,
     Json(req): Json<BgUseRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    user.require(Permission::IncidentManage)?;
     let cred = verify_and_consume_break_glass(&state.data_dir, &req.token, user.username())
         .map_err(|e| ApiError::bad_request(&e.to_string()))?;
 
