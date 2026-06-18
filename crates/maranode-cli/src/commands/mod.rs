@@ -12,6 +12,7 @@ pub mod quant;
 pub mod rag;
 pub mod scan;
 pub mod serve;
+pub mod symbols;
 pub mod status;
 pub mod users;
 pub mod verify;

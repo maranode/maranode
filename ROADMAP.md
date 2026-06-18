@@ -20,7 +20,7 @@ The full inventory is in `HANDBOOK.md`. The short version:
 - Workspaces with per-workspace quotas, system prompts, audit segments, crypto-shred
 - Local user accounts, API-key auth, OIDC, SAML SSO (basic), session management, per-IP rate limiting, named-permission RBAC (admin/operator/auditor/viewer)
 - Fully local RAG: embeddings, cosine retrieval, cited answers, collections, PDF/OCR/table extraction, code-aware chunking, encrypted store
-- Offline heuristic code vulnerability scan (`maranode scan`)
+- Offline heuristic code vulnerability scan (`maranode scan`) and symbol outline/search (`maranode symbols`)
 - Incident response: declare, investigate, snapshot, break-glass
 - Data classification engine with collection-level labels and policy enforcement
 - CLI (`maranode` + `maranoded`), web UI, native TLS (rustls) or Unix socket, systemd service, Docker images, package repositories (apt, dnf, pacman, Homebrew)

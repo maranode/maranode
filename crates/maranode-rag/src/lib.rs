@@ -9,8 +9,10 @@ pub mod engine;
 pub mod extract;
 pub mod math;
 pub mod store;
+pub mod symbols;
 
 pub use codescan::{scan as scan_code, Finding, Severity};
+pub use symbols::{outline, search as search_symbols, Symbol, SymbolKind};
 pub use config::RagConfig;
 pub use embed::Embedder;
 pub use engine::{IngestStats, RagEngine, RetrievedChunk, SummarizeFn};

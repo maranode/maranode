@@ -120,6 +120,14 @@ enum Commands {
         #[arg(long, default_value = "low")]
         min_severity: String,
     },
+    /// list or search code symbols (functions, types, …) by definition (offline)
+    Symbols {
+        /// file or directory to scan
+        path: std::path::PathBuf,
+        /// only show symbols whose name contains this text
+        #[arg(long)]
+        query: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -201,6 +209,9 @@ async fn run() -> Result<()> {
         }
         Commands::Scan { path, min_severity } => {
             commands::scan::run(&path, &min_severity)?;
+        }
+        Commands::Symbols { path, query } => {
+            commands::symbols::run(&path, query.as_deref())?;
         }
     }
 
