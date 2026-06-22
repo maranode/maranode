@@ -19,3 +19,19 @@ pub struct HealthStatus {
     pub loaded_models: Vec<String>,
     pub uptime_secs: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn air_gap_default_and_serde() {
+        assert_eq!(AirGapMode::default(), AirGapMode::AirGap);
+        assert_eq!(
+            serde_json::to_string(&AirGapMode::Whitelist).unwrap(),
+            "\"whitelist\""
+        );
+        let m: AirGapMode = serde_json::from_str("\"disabled\"").unwrap();
+        assert_eq!(m, AirGapMode::Disabled);
+    }
+}

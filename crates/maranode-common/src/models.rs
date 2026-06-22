@@ -126,3 +126,45 @@ fn default_temperature() -> f32 {
 fn default_max_tokens() -> u32 {
     2048
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_id_parse_and_display() {
+        let m = ModelId::parse("llama3.2:3b").unwrap();
+        assert_eq!(m.name, "llama3.2");
+        assert_eq!(m.tag, "3b");
+        assert_eq!(m.to_string(), "llama3.2:3b");
+        // only the first colon splits; the remainder stays in the tag
+        let m2 = ModelId::parse("host:5000:tag").unwrap();
+        assert_eq!(m2.name, "host");
+        assert_eq!(m2.tag, "5000:tag");
+        assert!(ModelId::parse("no-colon").is_none());
+    }
+
+    #[test]
+    fn device_acceleration_and_display() {
+        assert!(!InferenceDevice::Cpu.is_accelerated());
+        assert!(InferenceDevice::Gpu.is_accelerated());
+        assert!(InferenceDevice::RyzenAi.is_accelerated());
+        assert_eq!(InferenceDevice::Metal.to_string(), "metal");
+        assert_eq!(InferenceDevice::RyzenAi.to_string(), "ryzenai");
+    }
+
+    #[test]
+    fn serde_renames_and_defaults() {
+        assert_eq!(
+            serde_json::to_string(&InferenceDevice::RyzenAi).unwrap(),
+            "\"ryzenai\""
+        );
+        assert_eq!(serde_json::to_string(&ModelType::Llm).unwrap(), "\"llm\"");
+        assert_eq!(ModelType::default(), ModelType::Llm);
+
+        let d: InferenceDevice = serde_json::from_str("\"npu\"").unwrap();
+        assert_eq!(d, InferenceDevice::Npu);
+        let r: ChatRole = serde_json::from_str("\"assistant\"").unwrap();
+        assert_eq!(r, ChatRole::Assistant);
+    }
+}

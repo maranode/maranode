@@ -1102,6 +1102,13 @@ extraction, `SignedInfo` slicing, and signature rejection on incomplete
 assertions). The live OIDC/LDAP/SAML round-trips still need a real IdP or an HTTP
 mock harness, which stays a follow-up.
 
+**Core unit tests** — **[Done]**. Inline `#[cfg(test)]` coverage for the pure
+domain logic: `maranode-common/models.rs` (`ModelId` parsing, device flags, serde
+renames), `maranode-common/classification.rs` (label ordering, workspace clearance
+and access-violation checks), `maranode-common/types.rs` (air-gap mode serde), the
+RBAC permission matrix in `maranode-common/user.rs`, and the audit HMAC chain in
+`maranode-audit/chain.rs` (deterministic compute, verify accept/reject).
+
 **Proof demo** — **[Done]**. `demos/proof-test/` is a runnable end-to-end demo of
 proof-carrying inference: `run-inference.sh`, `sign-receipt.sh`,
 `verify-receipt.sh`, `demo.sh`, with its own README. Good for showing the receipt

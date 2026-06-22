@@ -150,3 +150,77 @@ pub struct ViolationInfo {
     pub workspace_clearance: DataLabel,
     pub block: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn label_ordering_strings_and_parse() {
+        assert!(DataLabel::Phi > DataLabel::Public);
+        assert!(DataLabel::Confidential > DataLabel::Restricted);
+        assert_eq!(DataLabel::Pii.level(), 3);
+        assert_eq!(DataLabel::Phi.as_str(), "PHI");
+        assert_eq!(
+            DataLabel::from_str("confidential").unwrap(),
+            DataLabel::Confidential
+        );
+        assert_eq!(DataLabel::from_str("PHI").unwrap(), DataLabel::Phi);
+        assert!(DataLabel::from_str("nope").is_err());
+    }
+
+    #[test]
+    fn unknown_workspace_is_public() {
+        let p = ClassificationPolicy::default();
+        assert_eq!(p.workspace_clearance("ghost"), DataLabel::Public);
+        assert!(p.check_access("ghost", "anything").is_none());
+    }
+
+    #[test]
+    fn access_violates_when_label_above_clearance() {
+        let mut p = ClassificationPolicy::default();
+        p.set_collection_label("phi-notes", DataLabel::Phi, true);
+        p.workspaces.insert(
+            "clinic".into(),
+            WorkspacePolicy {
+                max_clearance: DataLabel::Confidential,
+            },
+        );
+
+        let v = p
+            .check_access("clinic", "phi-notes")
+            .expect("violation expected");
+        assert_eq!(v.required_label, DataLabel::Phi);
+        assert_eq!(v.workspace_clearance, DataLabel::Confidential);
+        assert!(v.block);
+
+        // raise the clearance to PHI and access is allowed
+        p.workspaces.insert(
+            "clinic".into(),
+            WorkspacePolicy {
+                max_clearance: DataLabel::Phi,
+            },
+        );
+        assert!(p.check_access("clinic", "phi-notes").is_none());
+    }
+
+    #[test]
+    fn check_all_lists_only_violations() {
+        let mut p = ClassificationPolicy::default();
+        p.set_collection_label("open", DataLabel::Public, true);
+        p.set_collection_label("secret", DataLabel::Confidential, false);
+        // default workspace clearance is Public
+        let vs = p.check_all_collections("w");
+        assert_eq!(vs.len(), 1);
+        assert_eq!(vs[0].collection, "secret");
+        assert!(!vs[0].block);
+    }
+
+    #[test]
+    fn collection_block_defaults_true() {
+        let cp: CollectionPolicy = serde_json::from_str(r#"{"label":"PII"}"#).unwrap();
+        assert_eq!(cp.label, DataLabel::Pii);
+        assert!(cp.block_on_violation);
+    }
+}
